@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lapse</title>
+  <meta name="description" content="Zeitraffer aus Fotos: automatisch ausrichten, zuschneiden, Belichtung angleichen und als Video exportieren – direkt im Browser.">
+  <meta name="theme-color" content="#0e0f12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lapse">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><img src="icons/icon-192.png" alt="" width="26" height="26"><span>Lapse</span></div>
+    <nav class="steps" aria-label="Schritte">
+      <button data-view="photos" class="step active"><b>1</b> Fotos</button>
+      <button data-view="edit" class="step" disabled><b>2</b> Bearbeiten</button>
+      <button data-view="export" class="step" disabled><b>3</b> Export</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 1 · FOTOS -->
+    <section id="view-photos" class="view">
+      <div id="empty" class="empty">
+        <div class="empty-art" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <h1>Zeitraffer aus deinen Fotos</h1>
+        <p>Lapse richtet deine Fotos automatisch aus, schneidet sie passend zu, gleicht Belichtung und Farbe an und erstellt daraus ein Video. Alles passiert auf deinem iPhone – nichts wird hochgeladen.</p>
+        <label class="btn primary big" for="file">Fotos auswählen</label>
+        <p class="hint">Tipp: In der Auswahl mehrere Bilder antippen oder mit dem Finger über Bilder wischen. Ab 2 Fotos – sinnvoll sind 30 bis 500.</p>
+      </div>
+
+      <div id="photos-main" hidden>
+        <div class="toolbar">
+          <div class="count"><b id="photo-count">0</b> Fotos <span id="analyze-state" class="muted"></span></div>
+          <div class="toolbar-actions">
+            <label class="select-wrap" title="Sortierung">
+              <select id="sort">
+                <option value="time">Nach Aufnahmezeit</option>
+                <option value="name">Nach Dateiname</option>
+                <option value="added">Reihenfolge der Auswahl</option>
+              </select>
+            </label>
+            <label class="btn" for="file">+ Hinzufügen</label>
+            <button class="btn ghost" id="clear-all">Alle entfernen</button>
+          </div>
+        </div>
+        <details class="card" id="align-card">
+          <summary>Ausrichtung <span class="muted" id="align-summary"></span></summary>
+          <div class="field">
+            <span class="label">Aufnahmeart</span>
+            <div class="seg" data-set="model">
+              <button data-v="translation">Stativ</button>
+              <button data-v="similarity">Standard</button>
+              <button data-v="homography">Freihand</button>
+            </div>
+            <p class="help" data-help="model"></p>
+          </div>
+          <div class="field">
+            <span class="label">Genauigkeit</span>
+            <div class="seg" data-set="precision">
+              <button data-v="fast">Schnell</button>
+              <button data-v="precise">Präzise</button>
+            </div>
+            <p class="help">„Präzise“ analysiert mit höherer Auflösung und mehr Merkmalen – dauert etwa doppelt so lange. Wirkt für neu hinzugefügte Fotos.</p>
+          </div>
+          <div class="field">
+            <span class="label">Referenzbild</span>
+            <div class="seg" data-set="refMode">
+              <button data-v="first">Erstes</button>
+              <button data-v="middle">Mittleres</button>
+              <button data-v="last">Letztes</button>
+            </div>
+            <p class="help">Alle Fotos werden auf dieses Bild ausgerichtet. „Mittleres“ ist bei Tag-Nacht-Übergängen am robustesten.</p>
+          </div>
+        </details>
+        <div id="grid" class="grid"></div>
+
+      </div>
+    </section>
+
+    <!-- 2 · BEARBEITEN -->
+    <section id="view-edit" class="view" hidden>
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <canvas id="preview"></canvas>
+          <div class="stage-badge" id="stage-badge" hidden></div>
+          <div class="recalc" id="recalc" hidden><i></i>Wird neu berechnet …</div>
+        </div>
+      </div>
+      <div class="transport">
+        <button class="icon-btn" id="play" aria-label="Abspielen">
+          <svg viewBox="0 0 24 24" class="i-play"><path d="M7 4.5v15l13-7.5z"/></svg>
+          <svg viewBox="0 0 24 24" class="i-pause"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+        </button>
+        <input type="range" id="scrub" min="0" max="1000" value="0" step="1" aria-label="Zeitposition">
+        <span class="time" id="time">0:00 / 0:00</span>
+      </div>
+
+      <div class="strip-head">
+        <span class="muted" id="strip-info"></span>
+        <button class="btn small warn" id="fix-flagged" hidden></button>
+      </div>
+      <div class="strip" id="strip" role="listbox" aria-label="Bilder"></div>
+      <div class="notice" id="notice" hidden>
+        <p id="notice-text"></p>
+        <div class="btn-row">
+          <button class="btn small" id="notice-view">Ansehen</button>
+          <button class="btn small" id="notice-exclude">Ausschließen</button>
+          <button class="btn small ghost" id="notice-keep">Behalten</button>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="video" class="active">Video</button>
+        <button role="tab" data-tab="look">Bild</button>
+        <button role="tab" data-tab="frame">Einzelbild</button>
+      </div>
+
+      <div class="panel" id="panel-video">
+        <div class="field">
+          <span class="label">Fotos pro Sekunde <output data-out="pps"></output></span>
+          <input type="range" data-set="pps" min="1" max="60" step="1">
+          <p class="help">Bestimmt die Geschwindigkeit. Dauer: <b id="dur-readout">–</b></p>
+        </div>
+        <div class="field">
+          <span class="label">Bildrate des Videos</span>
+          <div class="seg" data-set="fps" data-num>
+            <button data-v="24">24</button><button data-v="25">25</button><button data-v="30">30</button><button data-v="60">60</button>
+          </div>
+        </div>
+        <label class="switch"><input type="checkbox" data-set="crossfade"><span>Weiche Überblendung zwischen Fotos</span></label>
+        <div class="field">
+          <span class="label">Bewegungsglättung <output data-out="smoothing"></output></span>
+          <input type="range" data-set="smoothing" min="1" max="7" step="2">
+          <p class="help">Mischt benachbarte Fotos – beruhigt Wolken, Wasser und Verkehr (Effekt wie längere Belichtung).</p>
+        </div>
+        <label class="switch"><input type="checkbox" data-set="pingpong"><span>Hin und zurück (Bumerang)</span></label>
+        <div class="field two">
+          <div>
+            <span class="label">Standbild Anfang <output data-out="holdStart"></output></span>
+            <input type="range" data-set="holdStart" min="0" max="3" step="0.25">
+          </div>
+          <div>
+            <span class="label">Standbild Ende <output data-out="holdEnd"></output></span>
+            <input type="range" data-set="holdEnd" min="0" max="3" step="0.25">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-look" hidden>
+        <div class="field">
+          <span class="label">Seitenverhältnis</span>
+          <div class="seg wrap" data-set="aspect">
+            <button data-v="16:9">16:9</button><button data-v="9:16">9:16</button><button data-v="4:3">4:3</button>
+            <button data-v="3:4">3:4</button><button data-v="1:1">1:1</button><button data-v="original">Original</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">Zusätzlicher Zoom <output data-out="zoom"></output></span>
+          <input type="range" data-set="zoom" min="1" max="1.5" step="0.01">
+          <p class="help" id="crop-help">Der Ausschnitt wird automatisch so groß wie möglich gewählt, ohne leere Ränder.</p>
+        </div>
+        <div class="field">
+          <span class="label">Belichtung &amp; Farbe angleichen</span>
+          <div class="seg" data-set="colorMode">
+            <button data-v="off">Aus</button>
+            <button data-v="deflicker">Flackern entfernen</button>
+            <button data-v="reference">Wie Referenz</button>
+          </div>
+          <p class="help" data-help="colorMode"></p>
+        </div>
+        <div class="field" data-if="colorMode!=off">
+          <span class="label">Stärke <output data-out="colorStrength"></output></span>
+          <input type="range" data-set="colorStrength" min="0" max="1" step="0.05">
+        </div>
+        <div class="field" data-if="colorMode==deflicker">
+          <span class="label">Glättungsfenster <output data-out="colorWindow"></output></span>
+          <input type="range" data-set="colorWindow" min="3" max="31" step="2">
+          <p class="help">Größer = ruhiger, kleiner = folgt schnellen Lichtwechseln (z. B. Wolken).</p>
+        </div>
+        <label class="switch" data-if="colorMode!=off"><input type="checkbox" data-set="colorChannels"><span>Auch Farbe/Weißabgleich angleichen</span></label>
+        <h3 class="sub">Gesamtbild</h3>
+        <div class="field">
+          <span class="label">Belichtung <output data-out="exposure"></output></span>
+          <input type="range" data-set="exposure" min="-2" max="2" step="0.05">
+        </div>
+        <div class="field">
+          <span class="label">Kontrast <output data-out="contrast"></output></span>
+          <input type="range" data-set="contrast" min="0.5" max="1.6" step="0.02">
+        </div>
+        <div class="field">
+          <span class="label">Sättigung <output data-out="saturation"></output></span>
+          <input type="range" data-set="saturation" min="0" max="2" step="0.02">
+        </div>
+      </div>
+
+      <div class="panel" id="panel-frame" hidden>
+        <div id="frame-none" class="muted center">Tippe unten im Filmstreifen auf ein Foto, um es zu prüfen und nachzubessern.</div>
+        <div id="frame-ui" hidden>
+          <div class="frame-head">
+            <img id="frame-thumb" alt="">
+            <div>
+              <div class="frame-title" id="frame-title"></div>
+              <div class="muted small" id="frame-meta"></div>
+              <div class="quality" id="frame-quality"></div>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">Vergleich mit Referenz</span>
+            <div class="seg" id="compare">
+              <button data-v="off" class="on">Aus</button>
+              <button data-v="overlay">Überlagern</button>
+              <button data-v="difference">Differenz</button>
+              <button data-v="blink">Blinken</button>
+            </div>
+            <p class="help">Bei guter Ausrichtung bleibt die Differenz dunkel und beim Blinken springt nichts.</p>
+          </div>
+          <h3 class="sub">Position</h3>
+          <div class="nudge" data-man="dx" data-step="0.05" data-min="-10" data-max="10" data-label="Horizontal" data-unit="%"></div>
+          <div class="nudge" data-man="dy" data-step="0.05" data-min="-10" data-max="10" data-label="Vertikal" data-unit="%"></div>
+          <div class="nudge" data-man="rot" data-step="0.05" data-min="-10" data-max="10" data-label="Drehung" data-unit="°"></div>
+          <div class="nudge" data-man="scale" data-step="0.002" data-min="0.8" data-max="1.25" data-label="Größe" data-unit="×"></div>
+          <h3 class="sub">Licht &amp; Farbe (nur dieses Foto)</h3>
+          <div class="nudge" data-man="ev" data-step="0.05" data-min="-3" data-max="3" data-label="Belichtung" data-unit="EV"></div>
+          <div class="nudge" data-man="temp" data-step="1" data-min="-100" data-max="100" data-label="Farbtemperatur" data-unit=""></div>
+          <div class="nudge" data-man="tint" data-step="1" data-min="-100" data-max="100" data-label="Tönung" data-unit=""></div>
+          <div class="btn-grid">
+            <button class="btn" id="f-refine">Präzise neu ausrichten</button>
+            <button class="btn" id="f-ok">Als geprüft markieren</button>
+            <button class="btn" id="f-ref">Als Referenz setzen</button>
+            <button class="btn" id="f-exclude">Foto ausschließen</button>
+            <button class="btn ghost" id="f-prev">‹ Vorheriges Foto</button>
+            <button class="btn ghost" id="f-next">Nächstes Foto ›</button>
+            <button class="btn ghost" id="f-reset">Korrekturen zurücksetzen</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 · EXPORT -->
+    <section id="view-export" class="view" hidden>
+      <div class="card">
+        <h2>Format</h2>
+        <div id="formats" class="radio-list"></div>
+      </div>
+      <div class="card" id="res-card">
+        <h2>Auflösung</h2>
+        <div class="seg wrap" id="res"></div>
+        <p class="help" id="res-help"></p>
+      </div>
+      <div class="card" id="quality-card">
+        <h2>Qualität</h2>
+        <div class="seg" id="quality">
+          <button data-v="standard">Standard</button>
+          <button data-v="high" class="on">Hoch</button>
+          <button data-v="max">Maximal</button>
+        </div>
+      </div>
+      <div class="card summary" id="summary"></div>
+      <div class="card result" id="result" hidden>
+        <h2>Fertig</h2>
+        <div class="result-media" id="result-media"></div>
+        <p class="muted small" id="result-info"></p>
+        <div class="btn-row">
+          <button class="btn primary" id="share">In Fotos sichern / Teilen</button>
+          <button class="btn" id="download">Herunterladen</button>
+        </div>
+        <p class="help">Auf dem iPhone im Teilen-Menü „Video sichern“ wählen, um es in der Fotos-App zu speichern.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="actionbar">
+    <button class="btn primary wide" id="primary" disabled>Fotos auswählen</button>
+  </footer>
+
+  <div class="modal" id="progress" hidden role="dialog" aria-modal="true" aria-labelledby="progress-title">
+    <div class="modal-box">
+      <h2 id="progress-title">Bitte warten</h2>
+      <div class="bar"><i id="progress-bar"></i></div>
+      <p id="progress-text" class="muted small"></p>
+      <button class="btn ghost" id="progress-cancel">Abbrechen</button>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <input type="file" id="file" multiple accept="image/*" hidden>
+  <noscript>Lapse benötigt JavaScript.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
