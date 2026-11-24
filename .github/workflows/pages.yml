@@ -1,5 +1,7 @@
-# Veröffentlicht Lapse automatisch auf GitHub Pages – bei jedem Push auf main oder einen claude/-Branch.
-# Ablauf: Tests -> Versionsnummer eintragen -> Seite bauen -> veröffentlichen.
+# Veröffentlicht Lapse automatisch – bei jedem Push auf main oder einen claude/-Branch.
+# Ablauf: Tests -> Versionsnummer eintragen -> fertige Seite in den Branch gh-pages schreiben.
+# GitHub Pages veröffentlicht den Branch gh-pages (Settings -> Pages -> Deploy from a branch).
+# Vorteil: keine Branch-Regeln im Environment nötig, funktioniert mit jedem Arbeits-Branch.
 name: Lapse veröffentlichen
 
 on:
@@ -8,9 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write   # zum Schreiben des Branches gh-pages
 
 # Immer nur eine Veröffentlichung gleichzeitig; die neueste gewinnt.
 concurrency:
@@ -18,12 +18,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -34,24 +34,23 @@ jobs:
         run: |
           mkdir -p _site
           cp -r index.html manifest.webmanifest sw.js css js vendor icons _site/
+          touch _site/.nojekyll
           BUILD="$(git rev-parse --short HEAD)"
           BUILD_DATE="$(TZ=Europe/Zurich date '+%d.%m.%Y %H:%M')"
           sed -i "s/__BUILD__/${BUILD}/g" _site/sw.js _site/js/version.js
           sed -i "s/__BUILD_DATE__/${BUILD_DATE}/g" _site/js/version.js
+          echo "BUILD=${BUILD}" >> "$GITHUB_ENV"
           echo "Version ${BUILD} (${BUILD_DATE}) von Branch ${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: In Branch gh-pages veröffentlichen
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Lapse ${BUILD} (aus ${GITHUB_REF_NAME})"
+          git push -f -q "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+          echo "Branch gh-pages aktualisiert -> https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_STEP_SUMMARY"

@@ -68,13 +68,14 @@ Auflösungen 720p bis 4K (je nach Encoder des Geräts). Der Export rechnet jedes
 
 ## Veröffentlichen & automatische Updates (GitHub Pages, kostenlos)
 
-Lapse besteht nur aus statischen Dateien. Der Workflow `.github/workflows/pages.yml` veröffentlicht bei **jedem Push** auf `main` oder einen `claude/…`-Branch automatisch: Tests → Versionsnummer (Commit) eintragen → auf GitHub Pages bereitstellen. Adresse: **https://ziege1988.github.io/Lapse/**
+Lapse besteht nur aus statischen Dateien. Der Workflow `.github/workflows/pages.yml` läuft bei **jedem Push** auf `main` oder einen `claude/…`-Branch: Tests → Versionsnummer (Commit) eintragen → fertige Seite in den Branch **`gh-pages`** schreiben. GitHub Pages veröffentlicht diesen Branch. Adresse: **https://ziege1988.github.io/Lapse/**
 
 ### Einmalige Einrichtung auf github.com
-1. **Pages aktivieren:** Repository → *Settings* → *Pages* → *Build and deployment* → *Source*: **GitHub Actions** wählen (keinen Branch auswählen).
-2. **Branches für die Veröffentlichung freigeben:** *Settings* → *Environments* → **github-pages** → *Deployment branches and tags* → *Add deployment branch or tag rule* → `claude/*` eintragen → *Add rule*; dasselbe für `main`. (Ohne diese Regeln darf nur der Standard-Branch veröffentlichen.)
-3. **Actions erlauben** (meist schon so): *Settings* → *Actions* → *General* → *Actions permissions*: „Allow all actions and reusable workflows“.
-4. **Erste Veröffentlichung starten:** Tab *Actions* → „Lapse veröffentlichen“ → *Run workflow* → Branch wählen → *Run workflow*. Nach 1–2 Minuten grüner Haken; die Adresse steht im Lauf und unter *Settings → Pages*.
+1. **Warten, bis der Branch `gh-pages` existiert:** Tab *Actions* → Lauf „Lapse veröffentlichen“ muss einen grünen Haken haben. Falls kein Lauf da ist: „Lapse veröffentlichen“ → *Run workflow* → *Run workflow*.
+2. **Pages einschalten:** *Settings* → *Pages* → *Build and deployment* → *Source*: **Deploy from a branch** → *Branch*: **gh-pages**, Ordner **/ (root)** → *Save*.
+3. Nach 1–2 Minuten ist Lapse erreichbar (Adresse oben in *Settings → Pages*). Den Fortschritt zeigt im Tab *Actions* der Lauf „pages build and deployment“.
+
+Keine Branch-Regeln unter *Environments* nötig.
 
 ### Wie Updates ankommen
 - Jeder neue Push wird automatisch veröffentlicht (Status im Tab *Actions*).
