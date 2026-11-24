@@ -19,27 +19,81 @@ const CODECS = {
   'webm-vp9': ['vp09.00.40.08', 'vp09.00.31.08', 'vp09.00.10.08'],
 };
 
-const QUALITY_BPP = { standard: 0.09, high: 0.16, max: 0.28 };
-
-function encoderConfig(format, codec, w, h, fps, quality) {
-  const bitrate = Math.round(Math.min(80e6, Math.max(1.5e6, w * h * fps * QUALITY_BPP[quality])));
-  const cfg = { codec, width: w, height: h, bitrate, framerate: fps, latencyMode: 'quality', bitrateMode: 'variable' };
+function encoderConfig(format, codec, w, h, fps, bitrate, bitrateMode = 'variable') {
+  const cfg = { codec, width: w, height: h, bitrate: Math.round(bitrate), framerate: fps, latencyMode: 'quality', bitrateMode };
   if (format === 'mp4-avc') cfg.avc = { format: 'avc' };
   if (format === 'mp4-hevc') cfg.hevc = { format: 'hevc' };
   return cfg;
 }
 
 /** Erste unterstützte Codec-Konfiguration für Format & Größe, sonst null. */
-export async function findConfig(format, w, h, fps, quality = 'high') {
+export async function findConfig(format, w, h, fps, bitrate = w * h * fps * 0.15, modes = ['variable']) {
   if (typeof VideoEncoder === 'undefined' || !CODECS[format]) return null;
-  for (const codec of CODECS[format]) {
-    const cfg = encoderConfig(format, codec, w, h, fps, quality);
-    try {
-      const r = await VideoEncoder.isConfigSupported(cfg);
-      if (r.supported) return r.config || cfg;
-    } catch { /* weiter */ }
+  for (const mode of modes) {
+    for (const codec of CODECS[format]) {
+      const cfg = encoderConfig(format, codec, w, h, fps, bitrate, mode);
+      try {
+        const r = await VideoEncoder.isConfigSupported(cfg);
+        if (r.supported) return r.config || cfg;
+      } catch { /* weiter */ }
+    }
   }
   return null;
+}
+
+// ---------- Qualität & Dateigröße ----------
+
+export const MIN_BITRATE = 0.25e6;
+export const qualityName = q => (q < 30 ? 'Klein' : q < 55 ? 'Standard' : q < 78 ? 'Hoch' : 'Maximal');
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/** Höchste sinnvolle Datenrate (darüber steigt die Qualität nicht mehr sichtbar). */
+export function maxBitrate(w, h, fps) { return Math.min(80e6, w * h * fps * 0.45); }
+
+/**
+ * Exportplan – einzige Quelle für Größe, Datenrate und geschätzte Dateigröße
+ * (wird von Oberfläche und Export gleichermaßen verwendet).
+ * exp: { format, shortEdge, gifLong, sizeMode: 'quality'|'size', q: 0..100, targetMB }
+ */
+export function exportPlan(project, exp) {
+  const crop = project.crop, tl = project.timeline();
+  const aspect = crop.w / crop.h, fmt = exp.format, q = clamp(exp.q, 0, 100) / 100;
+  const isGif = fmt === 'gif', isZip = fmt === 'zip', isVideo = !isGif && !isZip;
+  let { w, h } = outputSize(aspect, exp.shortEdge);
+  if (isGif) {
+    const k = Math.min(1, (exp.gifLong || 480) / Math.max(w, h));
+    w = Math.max(2, Math.round(w * k / 2) * 2); h = Math.max(2, Math.round(h * k / 2) * 2);
+  }
+  const plan = { format: fmt, w, h, duration: tl.duration, photos: project.included.length, sequence: tl.sequence.length, q: exp.q };
+  if (isVideo) {
+    const fps = tl.fps, maxRate = maxBitrate(w, h, fps);
+    const bySize = exp.sizeMode === 'size';
+    let bitrate;
+    if (bySize) bitrate = (exp.targetMB * 8e6 * 0.97) / Math.max(0.1, tl.duration); // 3 % Containeranteil
+    else {
+      let bpp = 0.03 * Math.pow(0.4 / 0.03, q); // 0,03 … 0,4 Bit pro Pixel
+      if (fmt === 'mp4-hevc') bpp *= 0.6;       // HEVC: gleiche Qualität bei ~40 % weniger Daten
+      bitrate = w * h * fps * bpp;
+    }
+    const raw = bitrate;
+    bitrate = clamp(bitrate, MIN_BITRATE, maxRate);
+    Object.assign(plan, {
+      fps, frames: Math.max(1, Math.round(tl.duration * fps)), bitrate, bySize,
+      bpp: bitrate / (w * h * fps),
+      capped: raw > maxRate ? 'max' : raw < MIN_BITRATE ? 'min' : null,
+      estBytes: bitrate * tl.duration / 8 * (bySize ? 1 : 0.85),
+      minMB: MIN_BITRATE * tl.duration / 8e6, maxMB: maxRate * tl.duration / 8e6,
+    });
+  } else if (isGif) {
+    const fps = Math.min(tl.fps, Math.round(10 + 15 * Math.min(1, q * 1.25)));
+    const colors = q < 0.3 ? 64 : q < 0.6 ? 128 : 256;
+    const frames = Math.max(1, Math.round(tl.duration * fps));
+    Object.assign(plan, { fps, frames, colors, estBytes: w * h * frames * (0.1 + 0.3 * colors / 256) });
+  } else {
+    const jpegQ = +(0.6 + 0.38 * q).toFixed(2);
+    Object.assign(plan, { jpegQ, estBytes: project.included.length * w * h * (0.06 + 0.5 * q * q) });
+  }
+  return plan;
 }
 
 export function mediaRecorderType() {
@@ -94,28 +148,21 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 
 /**
  * Führt den Export aus.
- * opts: { format, shortEdge, quality, onProgress(frac, text), isCancelled }
+ * exp: Exporteinstellungen (siehe exportPlan); { onProgress(frac, text), isCancelled }
  * Rückgabe: { blob, name, mime, w, h, duration }
  */
-export async function runExport(project, opts) {
-  const { format, quality = 'high', onProgress, isCancelled } = opts;
-  const crop = project.crop;
-  const aspect = crop.w / crop.h;
-  let { w, h } = outputSize(aspect, opts.shortEdge);
-  if (format === 'gif') {
-    const k = Math.min(1, (opts.gifLong || 480) / Math.max(w, h));
-    ({ w, h } = { w: Math.round(w * k / 2) * 2, h: Math.round(h * k / 2) * 2 });
-  }
+export async function runExport(project, exp, { onProgress, isCancelled } = {}) {
+  const plan = exportPlan(project, exp);
+  const { format, w, h } = plan;
   const canvas = makeCanvas(w, h);
   const r = new Renderer(canvas, { preserve: true });
   const src = new HiResSource(project, r, w);
   const global = project.globalParams();
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
   try {
-    if (format === 'zip') return await exportZip(project, r, src, canvas, global, { w, h, stamp, onProgress, isCancelled });
+    if (format === 'zip') return await exportZip(project, r, src, canvas, global, { w, h, stamp, jpegQ: plan.jpegQ, onProgress, isCancelled });
     const tl = project.timeline();
-    const fps = format === 'gif' ? Math.min(tl.fps, 25) : tl.fps;
-    const total = Math.max(1, Math.round(tl.duration * fps));
+    const fps = plan.fps, total = plan.frames;
     const drawAt = async j => {
       const samples = tl.sample(j / fps);
       await Promise.all(samples.map(s => src.ensure(s.frame)));
@@ -126,17 +173,18 @@ export async function runExport(project, opts) {
       r.draw(layers, { global });
       r.trim(6, new Set([...layers.map(L => L.key), ...next.map(s => 'x' + s.frame.id)]));
     };
-    if (format === 'gif') return await exportGif(canvas, drawAt, { w, h, fps, total, stamp, onProgress, isCancelled });
-    return await exportVideo(format, canvas, drawAt, { w, h, fps, total, quality, stamp, onProgress, isCancelled });
+    if (format === 'gif') return await exportGif(canvas, drawAt, { w, h, fps, total, colors: plan.colors, stamp, onProgress, isCancelled });
+    return await exportVideo(format, canvas, drawAt, { w, h, fps, total, plan, stamp, onProgress, isCancelled });
   } finally {
     r.destroy();
     freeCanvas(canvas);
   }
 }
 
-async function exportVideo(format, canvas, drawAt, { w, h, fps, total, quality, stamp, onProgress, isCancelled }) {
-  const cfg = await findConfig(format, w, h, fps, quality);
-  if (!cfg) return exportMediaRecorder(canvas, drawAt, { fps, total, w, h, quality, stamp, onProgress, isCancelled });
+async function exportVideo(format, canvas, drawAt, { w, h, fps, total, plan, stamp, onProgress, isCancelled }) {
+  // Bei Zielgröße möglichst konstante Datenrate (genauer planbar), sonst variabel (bessere Qualität)
+  const cfg = await findConfig(format, w, h, fps, plan.bitrate, plan.bySize ? ['constant', 'variable'] : ['variable']);
+  if (!cfg) return exportMediaRecorder(canvas, drawAt, { fps, total, w, h, bitrate: plan.bitrate, stamp, onProgress, isCancelled });
   const isMp4 = format.startsWith('mp4');
   const lib = isMp4 ? await import('../vendor/mp4-muxer.mjs') : await import('../vendor/webm-muxer.mjs');
   const target = new lib.ArrayBufferTarget();
@@ -170,14 +218,14 @@ async function exportVideo(format, canvas, drawAt, { w, h, fps, total, quality, 
   return { blob: new Blob([target.buffer], { type: isMp4 ? 'video/mp4' : 'video/webm' }), name: `lapse_${stamp}.${f}`, w, h, duration: total / fps };
 }
 
-async function exportMediaRecorder(canvas, drawAt, { fps, total, w, h, quality, stamp, onProgress, isCancelled }) {
+async function exportMediaRecorder(canvas, drawAt, { fps, total, w, h, bitrate, stamp, onProgress, isCancelled }) {
   const type = mediaRecorderType();
   if (!type || !canvas.captureStream) throw new Error('Dieses Gerät unterstützt keine Videokodierung im Browser. Bitte iOS aktualisieren oder GIF/ZIP wählen.');
   // Echtzeitaufnahme (Rückfall für ältere Geräte)
   canvas.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;';
   document.body.appendChild(canvas);
   const stream = canvas.captureStream(0), track = stream.getVideoTracks()[0];
-  const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: Math.round(w * h * fps * QUALITY_BPP[quality]) });
+  const rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: Math.round(bitrate) });
   const chunks = [];
   rec.ondataavailable = e => e.data.size && chunks.push(e.data);
   const stopped = new Promise(r => { rec.onstop = r; });
@@ -198,7 +246,7 @@ async function exportMediaRecorder(canvas, drawAt, { fps, total, w, h, quality, 
   return { blob: new Blob(chunks, { type: mime }), name: `lapse_${stamp}.${mime.endsWith('mp4') ? 'mp4' : 'webm'}`, w, h, duration: total / fps };
 }
 
-async function exportGif(canvas, drawAt, { w, h, fps, total, stamp, onProgress, isCancelled }) {
+async function exportGif(canvas, drawAt, { w, h, fps, total, colors = 256, stamp, onProgress, isCancelled }) {
   const { GIFEncoder, quantize, applyPalette } = await import('../vendor/gifenc.esm.js');
   const gif = GIFEncoder();
   const c2 = makeCanvas(w, h), ctx = c2.getContext('2d', { willReadFrequently: true });
@@ -209,7 +257,7 @@ async function exportGif(canvas, drawAt, { w, h, fps, total, stamp, onProgress, 
     await drawAt(j);
     ctx.drawImage(canvas, 0, 0);
     const { data } = ctx.getImageData(0, 0, w, h);
-    const palette = quantize(data, 256, { format: 'rgb444' });
+    const palette = quantize(data, colors, { format: 'rgb444' });
     gif.writeFrame(applyPalette(data, palette, 'rgb444'), w, h, { palette, delay, repeat: 0 });
     report(onProgress, j + 1, total, t0, 'GIF wird erstellt');
     if (j % 2 === 0) await tick();
@@ -219,7 +267,7 @@ async function exportGif(canvas, drawAt, { w, h, fps, total, stamp, onProgress, 
   return { blob: new Blob([gif.bytes()], { type: 'image/gif' }), name: `lapse_${stamp}.gif`, w, h, duration: total / fps };
 }
 
-async function exportZip(project, r, src, canvas, global, { w, h, stamp, onProgress, isCancelled }) {
+async function exportZip(project, r, src, canvas, global, { w, h, stamp, jpegQ = 0.93, onProgress, isCancelled }) {
   const zip = new ZipWriter();
   const list = project.included;
   const t0 = performance.now();
@@ -229,7 +277,7 @@ async function exportZip(project, r, src, canvas, global, { w, h, stamp, onProgr
     await src.ensure(f);
     r.draw([project.layer(f, 1, 'x')], { global });
     r.trim(2, new Set(['x' + f.id]));
-    const blob = await toBlob(canvas, 'image/jpeg', 0.93);
+    const blob = await toBlob(canvas, 'image/jpeg', jpegQ);
     const base = f.name.replace(/\.[^.]+$/, '');
     await zip.add(`lapse_${String(i + 1).padStart(4, '0')}_${base}.jpg`, blob, f.date ? new Date(f.date) : new Date());
     report(onProgress, i + 1, list.length, t0, 'Einzelbilder werden gespeichert');

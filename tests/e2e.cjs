@@ -85,6 +85,28 @@ async function makePhotos(page, N) {
       check(r && r.size > 10000 && r.name.endsWith(fmt === 'mp4-avc' ? '.mp4' : fmt === 'webm-vp9' ? '.webm' : '.' + fmt), `Export ${fmt}: ${r ? `${r.name}, ${(r.size / 1e6).toFixed(2)} MB` : 'fehlgeschlagen'}`);
       await page.evaluate(() => { window.__lapse.ui.result = null; });
     }
+    // Qualität & Dateigröße
+    const exportMp4 = async () => {
+      await page.click('#primary');
+      await page.waitForFunction(() => document.querySelector('#progress').hidden, null, { timeout: 300000 });
+      return page.evaluate(() => window.__lapse.ui.result.blob.size);
+    };
+    if (await page.$eval('#formats input[value="mp4-avc"]', i => !i.disabled)) {
+      await page.click('#formats input[value="mp4-avc"]');
+      await page.waitForTimeout(400);
+      await page.click('#size-mode button[data-v="quality"]');
+      await page.$eval('#q-slider', el => { el.value = 15; el.dispatchEvent(new Event('input')); });
+      const small = await exportMp4();
+      await page.$eval('#q-slider', el => { el.value = 90; el.dispatchEvent(new Event('input')); });
+      const big = await exportMp4();
+      check(big > small * 2, `Qualitätsregler wirkt (Klein ${(small / 1e6).toFixed(2)} MB < Maximal ${(big / 1e6).toFixed(2)} MB)`);
+      await page.click('#size-mode button[data-v="size"]');
+      await page.$eval('#s-slider', el => { el.value = 450; el.dispatchEvent(new Event('input')); });
+      const target = await page.evaluate(() => window.__lapse.ui.exp.targetMB);
+      const est = await page.textContent('#q-info');
+      const sized = await exportMp4();
+      check(sized <= target * 1e6 * 1.05, `Zielgröße eingehalten (Ziel ${target} MB, Ergebnis ${(sized / 1e6).toFixed(2)} MB; Anzeige: ${est.replace(/\s+/g, ' ')})`);
+    }
     check(!errors.length, `keine Browserfehler${errors.length ? ': ' + errors.join(' | ') : ''}`);
   } finally {
     await browser.close();

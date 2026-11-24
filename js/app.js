@@ -3,8 +3,9 @@
 import { Project, newManual, DEFAULT_SETTINGS } from './project.js';
 import { Aligner, importFiles, sortFrames, alignAll, refineFrame, StatsEngine } from './pipeline.js';
 import { Player } from './player.js';
-import { FORMATS, findConfig, mediaRecorderType, outputSize, sourceDetail, runExport, fmtTime } from './export.js';
+import { FORMATS, findConfig, mediaRecorderType, outputSize, sourceDetail, runExport, exportPlan, qualityName } from './export.js';
 import { inv, mul, I3 } from './geometry.js';
+import { BUILD, BUILD_DATE, isDev } from './version.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -20,9 +21,11 @@ if (project.settings.refMode === 'manual') project.settings.refMode = 'middle';
 
 const ui = {
   view: 'photos', tab: 'video', selected: null, compare: 'off',
-  exp: Object.assign({ format: 'mp4-avc', shortEdge: 1080, quality: 'high', gifLong: 480 }, store.get('export', {})),
+  exp: Object.assign({ format: 'mp4-avc', shortEdge: 1080, gifLong: 480, sizeMode: 'quality', q: 65, targetMB: 16 }, store.get('export', {})),
   result: null,
 };
+
+if (ui.exp.quality) { ui.exp.q = { standard: 42, high: 65, max: 86 }[ui.exp.quality] ?? 65; delete ui.exp.quality; }
 
 let aligner = null, stats = null, player = null;
 const getAligner = () => (aligner ||= new Aligner());
@@ -706,27 +709,89 @@ async function refreshExport() {
   if (!isGif && ui.exp.shortEdge > detail * 1.05) help.push(`Hinweis: Der Ausschnitt deiner Fotos hat an der kurzen Kante ca. ${detail} px – höhere Auflösungen werden hochgerechnet.`);
   if (states.some(s => !s)) help.push('Ausgegraute Größen unterstützt der Video-Encoder dieses Geräts nicht.');
   $('#res-help').textContent = help.join(' ');
-  $('#quality-card').hidden = isGif || fmt === 'zip';
-  $$('#quality button').forEach(b => b.classList.toggle('on', b.dataset.v === ui.exp.quality));
-
-  // Übersicht
-  const tl = project.timeline();
-  let { w, h } = outputSize(aspect, ui.exp.shortEdge);
-  if (isGif) { const k = Math.min(1, ui.exp.gifLong / Math.max(w, h)); w = Math.round(w * k / 2) * 2; h = Math.round(h * k / 2) * 2; }
-  const bpp = { standard: 0.09, high: 0.16, max: 0.28 }[ui.exp.quality];
-  const fps2 = isGif ? Math.min(25, fps) : fps;
-  let size = '';
-  if (fmt === 'zip') size = `ca. ${num(project.included.length * w * h * 0.35 / 1e6, 0)} MB`;
-  else if (isGif) size = `ca. ${num(tl.duration * fps2 * w * h * 0.25 / 1e6, 0)} MB`;
-  else size = `ca. ${num(Math.min(80e6, w * h * fps * bpp) * tl.duration / 8 / 1e6 * (fmt === 'mp4-hevc' ? 0.6 : 0.75), 0)} MB`;
-  const rows = fmt === 'zip'
-    ? [['Fotos', project.included.length], ['Bildgröße', `${w}×${h}`], ['Dateigröße', size]]
-    : [['Dauer', `${fmtClock(tl.duration)} s`], ['Bildrate', `${fps2} fps`], ['Fotos', `${tl.sequence.length}`], ['Bildgröße', `${w}×${h}`], ['Dateigröße', size]];
-  $('#summary').innerHTML = `<h2>Übersicht</h2><dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl>`;
+  ui.resStates = Object.fromEntries(opts.map(([v], i) => [v, states[i]]));
+  updateQualityUI();
   updatePrimary();
 }
 
-$$('#quality button').forEach(b => b.onclick = () => { ui.exp.quality = b.dataset.v; store.set('export', ui.exp); refreshExport(); });
+// ---- Qualität & Dateigröße (wirkt auf alle Formate) ----
+const fmtMB = mb => (mb < 10 ? num(mb, 1) : num(mb, 0)) + ' MB';
+const SIZE_CHIPS = [8, 16, 25, 50, 100, 250];
+const sizeToSlider = (mb, p) => Math.round(1000 * Math.log(mb / p.minMB) / Math.log(p.maxMB / p.minMB));
+const sliderToSize = (v, p) => p.minMB * Math.pow(p.maxMB / p.minMB, v / 1000);
+
+function updateQualityUI() {
+  if (!project.crop) return;
+  const e = ui.exp, fmt = e.format, isVideo = fmt !== 'gif' && fmt !== 'zip';
+  if (!isVideo) e.sizeMode = 'quality';
+  $('#size-mode').hidden = !isVideo;
+  $$('#size-mode button').forEach(b => b.classList.toggle('on', b.dataset.v === e.sizeMode));
+  const bySize = isVideo && e.sizeMode === 'size';
+  $('#q-quality').hidden = bySize;
+  $('#q-size').hidden = !bySize;
+  let p = exportPlan(project, e);
+  if (bySize) {
+    // Zielgröße auf den möglichen Bereich begrenzen
+    const mb = Math.min(p.maxMB, Math.max(p.minMB, e.targetMB));
+    if (Math.abs(mb - e.targetMB) > 1e-6) { e.targetMB = +mb.toFixed(2); p = exportPlan(project, e); }
+    $('#s-slider').value = sizeToSlider(e.targetMB, p);
+    $('#s-out').textContent = fmtMB(e.targetMB);
+    $('#s-chips').innerHTML = SIZE_CHIPS.map(mb => `<button data-mb="${mb}" class="${Math.abs(mb - e.targetMB) < 0.01 ? 'on' : ''}" ${mb > p.maxMB * 1.001 || mb < p.minMB ? 'disabled' : ''}>${mb} MB</button>`).join('');
+  } else {
+    $('#q-slider').value = e.q;
+    $('#q-out').textContent = `${qualityName(e.q)} · ${e.q} %`;
+  }
+  // Kennzahlen
+  const est = p.estBytes / 1e6;
+  const cells = isVideo
+    ? [[bySize ? `max. ${fmtMB(e.targetMB)}` : `≈ ${fmtMB(est)}`, 'Dateigröße'], [`${num(p.bitrate / 1e6, 1)} Mbit/s`, 'Datenrate'], [`${p.w}×${p.h}`, `${p.fps} fps`]]
+    : fmt === 'gif'
+      ? [[`≈ ${fmtMB(est)}`, 'Dateigröße'], [`${p.colors}`, 'Farben'], [`${p.w}×${p.h}`, `${p.fps} fps`]]
+      : [[`≈ ${fmtMB(est)}`, 'Gesamtgröße'], [`${Math.round(p.jpegQ * 100)} %`, 'JPEG-Qualität'], [`${p.w}×${p.h}`, `${p.photos} Fotos`]];
+  $('#q-info').innerHTML = cells.map(([a, b]) => `<div><b>${a}</b><small>${b}</small></div>`).join('');
+  // Hinweise & Empfehlung
+  const help = $('#q-help');
+  help.classList.remove('warn-text');
+  let text = '';
+  if (isVideo) {
+    if (p.bpp < 0.045) {
+      help.classList.add('warn-text');
+      // höchste Auflösung finden, bei der die Datenrate für saubere Bilder reicht
+      const better = [2160, 1440, 1080, 720].filter(v => v < e.shortEdge && ui.resStates?.[v] !== false)
+        .find(v => exportPlan(project, { ...e, shortEdge: v }).bpp >= 0.06);
+      text = `Sehr niedrige Datenrate für ${p.w}×${p.h} – Blockbildung und Unschärfe möglich.` + (better ? ` <button class="link" data-res="${better}">Auf ${better === 2160 ? '4K' : better + 'p'} wechseln</button> (gleiche Dateigröße, sauberere Bilder).` : '');
+    } else if (p.capped === 'max') text = 'Höchste sinnvolle Datenrate erreicht – mehr verbessert die Qualität nicht sichtbar.';
+    else if (bySize) text = 'Die Datenrate wird so gewählt, dass das Video die Zielgröße möglichst nicht überschreitet – z. B. für Messenger oder E-Mail mit Größenlimit.';
+    else text = 'Höhere Qualität = größere Datei. „Hoch“ ist für Fotos-App und Teilen ideal, „Maximal“ für die Weiterbearbeitung.';
+    if (fmt === 'mp4-hevc' && !bySize) text += ' HEVC braucht für gleiche Qualität rund 40 % weniger Daten.';
+  } else if (fmt === 'gif') text = 'Beeinflusst Farbanzahl und Bildrate des GIFs – die größten Hebel für die Dateigröße. Zusätzlich hilft eine kleinere Pixelgröße.';
+  else text = 'Bestimmt die JPEG-Kompression der Einzelbilder.';
+  help.innerHTML = text;
+  help.querySelector('[data-res]')?.addEventListener('click', ev => { e.shortEdge = +ev.target.dataset.res; store.set('export', e); refreshExport(); });
+
+  // Übersicht
+  const rows = fmt === 'zip'
+    ? [['Fotos', p.photos], ['Bildgröße', `${p.w}×${p.h}`], ['Dateigröße', `≈ ${fmtMB(est)}`]]
+    : [['Dauer', `${fmtClock(p.duration)} s`], ['Bildrate', `${p.fps} fps`], ['Fotos', `${p.sequence}`], ['Bildgröße', `${p.w}×${p.h}`],
+      ['Dateigröße', bySize ? `max. ${fmtMB(e.targetMB)}` : `≈ ${fmtMB(est)}`]];
+  $('#summary').innerHTML = `<h2>Übersicht</h2><dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl>`;
+}
+
+const saveExp = () => store.set('export', ui.exp);
+$$('#size-mode button').forEach(b => b.onclick = () => { ui.exp.sizeMode = b.dataset.v; saveExp(); updateQualityUI(); });
+$('#q-slider').addEventListener('input', e => { ui.exp.q = +e.target.value; updateQualityUI(); });
+$('#q-slider').addEventListener('change', saveExp);
+$('#s-slider').addEventListener('input', e => {
+  const p = exportPlan(project, ui.exp);
+  const mb = sliderToSize(+e.target.value, p);
+  ui.exp.targetMB = +(mb < 10 ? mb.toFixed(1) : mb.toFixed(0));
+  updateQualityUI();
+});
+$('#s-slider').addEventListener('change', saveExp);
+$('#s-chips').addEventListener('click', e => {
+  const mb = e.target.closest('[data-mb]')?.dataset.mb;
+  if (mb) { ui.exp.targetMB = +mb; saveExp(); updateQualityUI(); }
+});
 
 async function doExport() {
   if (!project.crop) return;
@@ -735,13 +800,13 @@ async function doExport() {
   progress.set(0, 'Bitte die App geöffnet und den Bildschirm an lassen.');
   await keepAwake(true);
   try {
-    const res = await runExport(project, {
-      format: ui.exp.format, shortEdge: ui.exp.shortEdge, quality: ui.exp.quality, gifLong: ui.exp.gifLong,
+    const plan = exportPlan(project, ui.exp);
+    const res = await runExport(project, ui.exp, {
       isCancelled: () => progress.cancelled,
       onProgress: (f, t) => progress.set(f, t),
     });
     progress.close();
-    showResult(res);
+    showResult(res, plan);
   } catch (err) {
     progress.close();
     if (err.name === 'AbortError') toast('Export abgebrochen.');
@@ -751,7 +816,7 @@ async function doExport() {
   }
 }
 
-function showResult(res) {
+function showResult(res, plan) {
   if (ui.result) URL.revokeObjectURL(ui.result.url);
   const url = URL.createObjectURL(res.blob);
   ui.result = { ...res, url };
@@ -759,7 +824,12 @@ function showResult(res) {
   if (res.blob.type.startsWith('video/')) media.innerHTML = `<video src="${url}" controls playsinline loop muted autoplay></video>`;
   else if (res.blob.type === 'image/gif') media.innerHTML = `<img src="${url}" alt="Erstelltes GIF">`;
   else media.innerHTML = '';
-  $('#result-info').textContent = `${res.name} · ${res.w}×${res.h} · ${num(res.blob.size / 1e6, 1)} MB${res.duration ? ` · ${fmtClock(res.duration)} s` : ''}`;
+  let info = `${res.name} · ${res.w}×${res.h} · ${num(res.blob.size / 1e6, 1)} MB${res.duration ? ` · ${fmtClock(res.duration)} s` : ''}`;
+  if (plan?.bySize) {
+    const over = res.blob.size / 1e6 / ui.exp.targetMB;
+    info += over > 1.03 ? ` – ${Math.round((over - 1) * 100)} % über der Zielgröße; für ein sicheres Limit etwas kleiner wählen.` : ' – innerhalb der Zielgröße.';
+  }
+  $('#result-info').textContent = info;
   $('#share').textContent = res.blob.type.startsWith('video/') ? 'In Fotos sichern / Teilen' : 'Teilen / Sichern';
   $('#result').hidden = false;
   $('#result').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -790,10 +860,52 @@ function download() {
 
 // ---------------------------------------------------------------- Start
 
-window.addEventListener('beforeunload', e => { if (project.frames.length) { e.preventDefault(); e.returnValue = ''; } });
+let allowLeave = false;
+window.addEventListener('beforeunload', e => { if (project.frames.length && !allowLeave) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---------------------------------------------------------------- Automatische Updates
+// Neue Versionen werden beim Start und beim Zurückkehren in die App erkannt. Ohne geladenes
+// Projekt wird sofort aktualisiert, sonst erst nach Bestätigung (damit keine Arbeit verloren geht).
+$('#version').textContent = isDev ? 'Entwicklungsversion' : `Version ${BUILD} · ${BUILD_DATE}`;
+
+function offerUpdate(apply) {
+  if (!project.frames.length) { apply(); return; }
+  if ($('.update-bar')) return;
+  const bar = document.createElement('div');
+  bar.className = 'update-bar';
+  bar.innerHTML = '<span>Eine neue Lapse-Version ist da.</span><button class="btn small primary">Jetzt laden</button><button class="btn small ghost">Später</button>';
+  const [now, later] = bar.querySelectorAll('button');
+  now.onclick = () => {
+    if (confirm('Beim Aktualisieren wird das aktuelle Projekt geschlossen. Fertige Exporte vorher sichern. Jetzt aktualisieren?')) apply();
+  };
+  later.onclick = () => bar.remove();
+  document.body.appendChild(bar);
+}
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  let reloading = false;
+  // Erstinstallation übernimmt nur die Kontrolle -> nicht neu laden; jeder spätere Wechsel ist ein Update
+  let controller = navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    const had = controller;
+    controller = navigator.serviceWorker.controller;
+    if (reloading || !had) return;
+    reloading = true;
+    window.onbeforeunload = null;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+    const activate = w => () => { allowLeave = true; w.postMessage('activate-now'); };
+    const watch = w => w && w.addEventListener('statechange', () => {
+      if (w.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(activate(w));
+    });
+    if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(activate(reg.waiting));
+    watch(reg.installing);
+    reg.addEventListener('updatefound', () => watch(reg.installing));
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
+    setInterval(check, 30 * 60 * 1000);
+  }).catch(() => {});
 }
 
 // Fehlende Browserfunktionen früh melden

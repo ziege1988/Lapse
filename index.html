@@ -36,6 +36,7 @@
         <p>Lapse richtet deine Fotos automatisch aus, schneidet sie passend zu, gleicht Belichtung und Farbe an und erstellt daraus ein Video. Alles passiert auf deinem iPhone – nichts wird hochgeladen.</p>
         <label class="btn primary big" for="file">Fotos auswählen</label>
         <p class="hint">Tipp: In der Auswahl mehrere Bilder antippen oder mit dem Finger über Bilder wischen. Ab 2 Fotos – sinnvoll sind 30 bis 500.</p>
+        <p class="version" id="version"></p>
       </div>
 
       <div id="photos-main" hidden>
@@ -258,12 +259,23 @@
         <p class="help" id="res-help"></p>
       </div>
       <div class="card" id="quality-card">
-        <h2>Qualität</h2>
-        <div class="seg" id="quality">
-          <button data-v="standard">Standard</button>
-          <button data-v="high" class="on">Hoch</button>
-          <button data-v="max">Maximal</button>
+        <h2>Qualität &amp; Dateigröße</h2>
+        <div class="seg" id="size-mode">
+          <button data-v="quality">Nach Qualität</button>
+          <button data-v="size">Nach Dateigröße</button>
         </div>
+        <div class="field" id="q-quality">
+          <span class="label">Qualität <output id="q-out"></output></span>
+          <input type="range" id="q-slider" min="0" max="100" step="1" aria-label="Qualität">
+          <div class="ticks" aria-hidden="true"><span>Klein</span><span>Standard</span><span>Hoch</span><span>Maximal</span></div>
+        </div>
+        <div class="field" id="q-size">
+          <span class="label">Zielgröße <output id="s-out"></output></span>
+          <input type="range" id="s-slider" min="0" max="1000" step="1" aria-label="Zielgröße">
+          <div class="chips" id="s-chips"></div>
+        </div>
+        <div class="qinfo" id="q-info"></div>
+        <p class="help" id="q-help"></p>
       </div>
       <div class="card summary" id="summary"></div>
       <div class="card result" id="result" hidden>

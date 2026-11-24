@@ -1,0 +1,57 @@
+# Veröffentlicht Lapse automatisch auf GitHub Pages – bei jedem Push auf main oder einen claude/-Branch.
+# Ablauf: Tests -> Versionsnummer eintragen -> Seite bauen -> veröffentlichen.
+name: Lapse veröffentlichen
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Immer nur eine Veröffentlichung gleichzeitig; die neueste gewinnt.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tests (Ausrichtung & Zuschnitt)
+        run: node tests/align.test.mjs
+
+      - name: Seite zusammenstellen und Version eintragen
+        run: |
+          mkdir -p _site
+          cp -r index.html manifest.webmanifest sw.js css js vendor icons _site/
+          BUILD="$(git rev-parse --short HEAD)"
+          BUILD_DATE="$(TZ=Europe/Zurich date '+%d.%m.%Y %H:%M')"
+          sed -i "s/__BUILD__/${BUILD}/g" _site/sw.js _site/js/version.js
+          sed -i "s/__BUILD_DATE__/${BUILD_DATE}/g" _site/js/version.js
+          echo "Version ${BUILD} (${BUILD_DATE}) von Branch ${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

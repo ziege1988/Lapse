@@ -11,7 +11,7 @@ Alle Berechnungen laufen lokal auf dem Gerät. Die Originalfotos werden nur gele
 
 ## Auf dem iPhone verwenden
 
-1. Die App-Adresse in **Safari** öffnen (siehe „Kostenlos veröffentlichen“).
+1. Die App-Adresse in **Safari** öffnen (nach der Einrichtung: https://ziege1988.github.io/Lapse/ – siehe „Veröffentlichen & automatische Updates“).
 2. Optional: Teilen-Symbol → **„Zum Home-Bildschirm“** – Lapse startet dann wie eine App im Vollbild und funktioniert auch offline.
 3. „Fotos auswählen“ → in der Mediathek mehrere Fotos antippen (oder mit dem Finger über Fotos wischen) → „Hinzufügen“.
 4. „Ausrichten & weiter“ → bearbeiten → „Weiter zum Export“ → „Video erstellen“ → **„In Fotos sichern / Teilen“ → „Video sichern“**.
@@ -61,19 +61,31 @@ Technik: Harris-Ecken auf einer Bildpyramide mit Subpixel-Verfeinerung, rotation
 
 Auflösungen 720p bis 4K (je nach Encoder des Geräts). Der Export rechnet jedes Bild aus den **Originaldateien** neu – nicht aus den Vorschaubildern.
 
-## Kostenlos veröffentlichen (GitHub Pages)
+**Qualität & Dateigröße** (wirkt auf alle Formate):
+- *Nach Qualität*: Regler von „Klein“ bis „Maximal“ mit Live-Anzeige von geschätzter Dateigröße und Datenrate. Bei GIF steuert er Farbanzahl und Bildrate, bei ZIP die JPEG-Qualität.
+- *Nach Dateigröße* (Videos): Zielgröße per Regler oder Schnellwahl (8 / 16 / 25 / 50 / 100 / 250 MB) – die Datenrate wird so berechnet, dass das Video das Limit möglichst nicht überschreitet. Nach dem Export zeigt Lapse die tatsächliche Größe und ob das Ziel eingehalten wurde.
+- Ist die Datenrate für die gewählte Auflösung zu niedrig (Blockbildung), schlägt Lapse eine passendere Auflösung vor – mit einem Tipp umstellbar.
 
-Lapse besteht nur aus statischen Dateien – kein Server, kein Build-Schritt.
+## Veröffentlichen & automatische Updates (GitHub Pages, kostenlos)
 
-1. Im Repository auf GitHub: **Settings → Pages**.
-2. *Source*: „Deploy from a branch“, Branch auswählen (z. B. `main`), Ordner `/ (root)` → **Save**.
-3. Nach ca. 1 Minute ist Lapse unter `https://<benutzername>.github.io/<repository>/` erreichbar.
+Lapse besteht nur aus statischen Dateien. Der Workflow `.github/workflows/pages.yml` veröffentlicht bei **jedem Push** auf `main` oder einen `claude/…`-Branch automatisch: Tests → Versionsnummer (Commit) eintragen → auf GitHub Pages bereitstellen. Adresse: **https://ziege1988.github.io/Lapse/**
 
-Hinweis: Für private Repositories ist GitHub Pages nur in kostenpflichtigen GitHub-Tarifen verfügbar; mit einem öffentlichen Repository ist es kostenlos. Kostenlose Alternativen: Cloudflare Pages oder Netlify (Ordner hochladen/verbinden).
+### Einmalige Einrichtung auf github.com
+1. **Pages aktivieren:** Repository → *Settings* → *Pages* → *Build and deployment* → *Source*: **GitHub Actions** wählen (keinen Branch auswählen).
+2. **Branches für die Veröffentlichung freigeben:** *Settings* → *Environments* → **github-pages** → *Deployment branches and tags* → *Add deployment branch or tag rule* → `claude/*` eintragen → *Add rule*; dasselbe für `main`. (Ohne diese Regeln darf nur der Standard-Branch veröffentlichen.)
+3. **Actions erlauben** (meist schon so): *Settings* → *Actions* → *General* → *Actions permissions*: „Allow all actions and reusable workflows“.
+4. **Erste Veröffentlichung starten:** Tab *Actions* → „Lapse veröffentlichen“ → *Run workflow* → Branch wählen → *Run workflow*. Nach 1–2 Minuten grüner Haken; die Adresse steht im Lauf und unter *Settings → Pages*.
 
-Lokal testen: `python3 -m http.server 8000` im Projektordner, dann `http://localhost:8000` öffnen (eine Datei direkt per `file://` zu öffnen funktioniert wegen der Module/Worker nicht).
+### Wie Updates ankommen
+- Jeder neue Push wird automatisch veröffentlicht (Status im Tab *Actions*).
+- Die App prüft beim Öffnen, beim Zurückkehren in die App und alle 30 Minuten auf eine neue Version.
+- **Kein Projekt geöffnet:** Lapse lädt die neue Version sofort selbst.
+- **Projekt geöffnet:** Eine Leiste „Neue Lapse-Version ist da“ erscheint – „Jetzt laden“ oder „Später“. So geht keine Arbeit verloren.
+- Die aktuelle Version (Commit · Datum) steht auf der Startseite unter dem Hinweistext.
 
-Nach Änderungen an den Dateien die `VERSION` in `sw.js` erhöhen, damit installierte Home-Bildschirm-Apps die neue Version laden.
+Hinweis: Laufen mehrere Arbeits-Branches gleichzeitig, gewinnt der zuletzt veröffentlichte Stand. Wer nur geprüfte Versionen live haben möchte, entfernt `'claude/**'` aus `on.push.branches` im Workflow und veröffentlicht nur über `main`.
+
+Lokal testen: `python3 -m http.server 8000` im Projektordner, dann `http://localhost:8000` öffnen (Anzeige „Entwicklungsversion“; `file://` funktioniert wegen Modulen/Worker nicht).
 
 ## Projektstruktur
 
@@ -91,7 +103,9 @@ js/player.js          Vorschau-Player
 js/export.js          WebCodecs-Export (MP4/WebM), GIF, ZIP, Echtzeit-Rückfall
 js/images.js, exif.js, zip.js   Hilfsfunktionen
 vendor/               mp4-muxer, webm-muxer, gifenc (MIT, Lizenzen in vendor/licenses)
-sw.js, manifest.webmanifest, icons/   Offline-Fähigkeit und Home-Bildschirm-App
+sw.js, manifest.webmanifest, icons/   Offline-Fähigkeit, Updates und Home-Bildschirm-App
+js/version.js         Versionskennung (wird beim Veröffentlichen eingetragen)
+.github/workflows/    automatische Veröffentlichung auf GitHub Pages
 tests/                Geometrie-/Ausrichtungstest (Node) und Browser-Gesamttest (Playwright)
 ```
 
