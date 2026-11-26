@@ -329,8 +329,31 @@ export class Project {
           if (Math.hypot(centers[i][0] - med(0), centers[i][1] - med(1)) > 0.04 * rw) { q = 'warn'; note = 'Sprung gegenüber Nachbarbildern'; }
         }
       }
+      if (q === 'good' && f.inconsistent) { q = 'warn'; note = 'Passt nicht zu den Nachbarbildern – vermutlich verrutscht'; }
       f.quality = f.manualChecked ? 'good' : q;
       f.qualityNote = note;
+    });
+  }
+
+  /**
+   * Nachbarprüfung: Ein verrutschtes Foto passt im Video schlechter zu seinen Nachbarn als
+   * diese zueinander. Markiert solche Fotos (f.inconsistent) für die Prüfung.
+   */
+  checkConsistency() {
+    const inc = this.included.filter(f => f.cvec);
+    const sim = (a, b) => { if (!a?.cvec || !b?.cvec || a.cvec.length !== b.cvec.length) return null; let s = 0; for (let i = 0; i < a.cvec.length; i++) s += a.cvec[i] * b.cvec[i]; return s; };
+    for (const f of this.frames) f.inconsistent = false;
+    if (inc.length < 4) return;
+    inc.forEach((f, i) => {
+      if (f.id === this.refId) return;
+      const p = inc[i - 1], n = inc[i + 1];
+      let own, ref;
+      if (p && n) { own = Math.max(sim(f, p), sim(f, n)); ref = sim(p, n); }
+      else if (n && inc[i + 2]) { own = sim(f, n); ref = sim(n, inc[i + 2]); }
+      else if (p && inc[i - 2]) { own = sim(f, p); ref = sim(p, inc[i - 2]); }
+      if (own == null || ref == null) return;
+      // deutlich unähnlicher zu den Nachbarn als diese untereinander → vermutlich verrutscht/gezoomt
+      if (own < ref - 0.12 && own < 0.75) f.inconsistent = true;
     });
   }
 

@@ -101,16 +101,22 @@ function fmtClock(s) {
 
 // ---------------------------------------------------------------- Ansichten
 
+const onStage = () => ui.view === 'edit' || ui.view === 'crop';
 function showView(v) {
-  if (anc.on && v !== 'edit') closeAnchors({ refreshAfter: false });
+  if (ui.review && v !== 'edit') endReview();
+  if (cropUI.on && v !== 'crop') closeCrop(true, { silent: true }); // Zuschnitt beim Verlassen übernehmen
+  if (anc.on && !cropUI.on && v !== 'edit') closeAnchors({ refreshAfter: false });
   ui.view = v;
   if (v !== 'edit') exitFullscreen();
-  for (const s of ['photos', 'points', 'edit', 'export']) $('#view-' + s).hidden = s !== v;
+  const sec = v === 'crop' ? 'edit' : v;
+  for (const s of ['photos', 'points', 'edit', 'export']) $('#view-' + s).hidden = s !== sec;
+  $('#guide-edit').hidden = v === 'crop';
+  $('#guide-crop').hidden = v !== 'crop';
   $$('.step').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   if (v !== 'edit') player?.pause();
   if (v === 'edit') { layoutStage(); renderStrip(); updateFramePanel(); player.invalidate(); }
+  if (v === 'crop') openCrop();
   if (v === 'export') { refreshExport(); updateCropState(); }
-  if (v === 'edit') updateCropState();
   if (v === 'points') renderPoints();
   updatePrimary();
   window.scrollTo({ top: 0 });
@@ -128,7 +134,7 @@ function updateSteps() {
 function updatePrimary() {
   const b = $('#primary'), n = project.frames.length;
   b.disabled = false;
-  if (cropUI.on) { b.textContent = 'Ausschnitt übernehmen'; return; }
+  if (cropUI.on) { b.textContent = 'Übernehmen & weiter zum Export'; return; }
   if (ui.review) {
     const r = ui.review, last = reviewRemaining() <= 1;
     if (r.mode === 'tap') {
@@ -145,21 +151,21 @@ function updatePrimary() {
     const k = project.anchors.length;
     b.textContent = k < 2 ? `Noch ${4 - k} Punkte setzen` : k < 4 ? `Ausrichten (besser ${4 - k} Punkt${4 - k === 1 ? '' : 'e'} mehr)` : `Alle ${n} Fotos ausrichten`;
     b.disabled = k < 2;
-  } else if (ui.view === 'edit') b.textContent = 'Weiter zum Export';
+  } else if (ui.view === 'edit') b.textContent = 'Weiter: Zuschnitt';
   else b.textContent = ui.exp.format === 'zip' ? 'Einzelbilder exportieren' : ui.exp.format === 'gif' ? 'GIF erstellen' : 'Video erstellen';
 }
 
 $$('.step').forEach(b => b.onclick = () => !b.disabled && showView(b.dataset.view));
 
 $('#primary').onclick = () => {
-  if (cropUI.on) { closeCrop(true); return; }
+  if (cropUI.on) { showView('export'); return; }
   if (ui.review) { if (ui.review.mode === 'ask') reviewAccept(); return; }
   if (ui.view === 'photos') {
     if (!project.frames.length) $('#file').click();
     else if (project.aligned) showView('edit');
     else showView('points');
   } else if (ui.view === 'points') runAnchorAlign();
-  else if (ui.view === 'edit') showView('export');
+  else if (ui.view === 'edit') showView('crop');
   else doExport();
 };
 
@@ -392,11 +398,15 @@ function startReview(startId) {
   showReviewFrame();
 }
 function reviewFrame() { const r = ui.review; return r && project.byId(r.ids[r.i]); }
+// Ganzes Bezugsfoto als Ausschnitt (kanonisch)
+const refFullCrop = () => { const r = project.ref, m = Math.max(r.w, r.h); return { x: 0, y: 0, w: r.w / m, h: r.h / m }; };
 async function showReviewFrame() {
   const f = reviewFrame();
   if (!f) return;
-  anc.frame = f;
-  player.showRaw(f);
+  const r = ui.review;
+  // Prüfen: Foto ausgerichtet in Lage des Bezugsfotos; Antippen: Originalfoto
+  if (r.mode === 'tap' || !f.align?.ok) { anc.frame = f; player.showRaw(f); }
+  else { anc.frame = project.ref; player.showAligned(f, refFullCrop()); }
   layoutStage();
   renderReview();
   window.scrollTo({ top: 0 });
@@ -408,8 +418,9 @@ function renderReview() {
   // Ringe: vermutete Lage der Bezugspunkte in diesem Foto (ohne Nummern)
   let html = '';
   if (r.mode === 'ask' && f.align?.ok) {
-    const Ti = inv(project.transform(f));
-    if (Ti) html = project.anchors.map(a => { const [x, y] = apply(Ti, a.x, a.y); return `<div class="ring" style="left:${x * m / f.w * 100}%;top:${y * m / f.h * 100}%"></div>`; }).join('');
+    // ausgerichtete Ansicht: Ringe an den festen Bezugspositionen
+    const ref = project.ref, rm = Math.max(ref.w, ref.h);
+    html = project.anchors.map(a => `<div class="ring" style="left:${a.x * rm / ref.w * 100}%;top:${a.y * rm / ref.h * 100}%"></div>`).join('');
   }
   html += r.taps.map(t => `<div class="tapdot" style="left:${t.x * m / f.w * 100}%;top:${t.y * m / f.h * 100}%"></div>`).join('');
   $('#anchor-layer').innerHTML = html;
@@ -423,10 +434,11 @@ function renderReview() {
   $('#rv-q').textContent = r.busy ? 'Einen Moment – das Foto wird ausgerichtet …'
     : r.mode === 'tap' ? `Tippe im Foto auf 3 der markierten Haferflocken – die Reihenfolge ist egal. (${r.taps.length} von 3)`
     : !f.align?.ok ? 'Lapse hat die Flocken hier nicht gefunden. Tippe 3 der markierten Haferflocken an – oder entferne das Foto.'
-    : 'Sitzen die orangen Ringe auf denselben Haferflocken wie im Bezugsfoto?';
+    : 'Liegen die Haferflocken in den orangen Ringen – genau wie im Bezugsfoto? Zum Vergleich „Bezugsfoto zeigen“ gedrückt halten.';
   $('#rv-retap').textContent = r.mode === 'tap' ? 'Antippen abbrechen' : 'Nein – Flocken antippen';
   $('#rv-retap').disabled = !!r.busy;
-  if (r.mode === 'ask' && !f.align?.ok) { r.mode = 'tap'; return renderReview(); }
+  $('#rv-hold').hidden = r.mode !== 'ask' || !f.align?.ok;
+  if (r.mode === 'ask' && !f.align?.ok) { r.mode = 'tap'; showReviewFrame(); return; }
   updatePrimary();
 }
 function reviewGoto(step) {
@@ -471,7 +483,7 @@ async function reviewTap(e) {
   if (!r || !f || r.busy) return;
   const rect = $('#anchor-layer').getBoundingClientRect(), m = Math.max(f.w, f.h);
   const x = (e.clientX - rect.left) / rect.width * f.w / m, y = (e.clientY - rect.top) / rect.height * f.h / m;
-  if (r.mode === 'ask') { r.mode = 'tap'; r.taps = []; }
+  if (r.mode === 'ask') { r.mode = 'tap'; r.taps = []; showReviewFrame(); return; } // erst Original zeigen, dann tippen
   r.taps.push({ x, y });
   renderReview();
   if (r.taps.length < 3) return;
@@ -479,7 +491,7 @@ async function reviewTap(e) {
   try {
     const res = await correctByTaps(project, getAligner(), f, r.taps);
     r.busy = false; r.taps = [];
-    if (res.ok) { r.mode = 'ask'; project.assessQuality(); toast('Neu ausgerichtet – bitte kurz prüfen.', 2500); }
+    if (res.ok) { r.mode = 'ask'; project.assessQuality(); showReviewFrame(); toast('Neu ausgerichtet – bitte kurz prüfen.', 2500); }
     else toast(res.reason === 'ambiguous' ? 'Nicht eindeutig – bitte 3 Flocken antippen, die weiter auseinander liegen.' : 'Diese 3 Stellen passen nicht zu den markierten Flocken – bitte nochmal antippen.', 4500);
   } catch (err) { r.busy = false; r.taps = []; toast('Fehler: ' + err.message, 5000); }
   renderReview();
@@ -489,8 +501,15 @@ $('#rv-retap').onclick = () => {
   if (!r) return;
   r.mode = r.mode === 'tap' && reviewFrame()?.align?.ok ? 'ask' : 'tap';
   r.taps = [];
-  renderReview();
+  showReviewFrame();
 };
+// Bezugsfoto zum Vergleich einblenden, solange gedrückt
+const holdBtn = $('#rv-hold');
+const holdOn = e => { e.preventDefault(); if (!ui.review) return; holdBtn.classList.add('on'); player.showAligned(project.ref, refFullCrop()); };
+const holdOff = () => { if (!ui.review) return; holdBtn.classList.remove('on'); const f = reviewFrame(); if (f && ui.review.mode === 'ask') player.showAligned(f, refFullCrop()); };
+holdBtn.addEventListener('pointerdown', holdOn);
+for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) holdBtn.addEventListener(ev, holdOff);
+holdBtn.addEventListener('contextmenu', e => e.preventDefault());
 $('#rv-remove').onclick = () => {
   const f = reviewFrame();
   if (!f || f.id === project.refId) return;
@@ -523,12 +542,14 @@ const cropUI = { on: false, rect: null, key: 'frei', drag: null, quads: null };
 const CROP_ASPECTS = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4 };
 
 function openCrop() {
-  if (!project.crop || !player) return;
+  if (!project.crop || !player || cropUI.on) return;
   exitFullscreen();
-  if (ui.view !== 'edit') showView('edit');
+  player.pause();
   const c = project.crop;
   cropUI.on = true;
   cropUI.rect = { x: c.x, y: c.y, w: c.w, h: c.h };
+  cropUI.orig = project.customCrop ? { ...project.customCrop } : null;
+  cropUI.auto = !project.customCrop;
   cropUI.key = project.customCrop?.key || 'frei';
   cropUI.quads = project.validQuads();
   cropUI.area = null;
@@ -544,11 +565,12 @@ function openCrop() {
   window.scrollTo({ top: 0 });
 }
 
-function closeCrop(apply) {
+function closeCrop(apply, { silent = false } = {}) {
+  if (!cropUI.on) return;
   if (apply && cropUI.rect) {
-    project.customCrop = { ...cropUI.rect, key: cropUI.key };
-    toast('Eigener Bildausschnitt übernommen.');
-  }
+    project.customCrop = cropUI.auto ? null : { ...cropUI.rect, key: cropUI.key };
+    if (!silent) toast(cropUI.auto ? 'Automatischer Ausschnitt.' : 'Eigener Bildausschnitt übernommen.');
+  } else project.customCrop = cropUI.orig;
   cropUI.on = false;
   anc.on = false;
   document.body.classList.remove('anchor-mode', 'crop-mode');
@@ -557,16 +579,17 @@ function closeCrop(apply) {
   $('#crop-layer').hidden = true;
   setTab(ui.tab);
   player?.stopInspect();
-  if (apply) project.computeCrop();
+  project.computeCrop();
   layoutStage();
   updatePrimary();
   updateCropState();
-  if (apply) scheduleRefresh(0);
+  scheduleRefresh(0);
   scheduleSave();
 }
 
 function updateCropState() {
-  const t = project.customCrop ? `eigener Ausschnitt${project.customCrop.key !== 'frei' ? ' · ' + project.customCrop.key : ''}` : 'automatisch (größtmöglich)';
+  const auto = cropUI.on ? cropUI.auto : !project.customCrop, key = cropUI.on ? cropUI.key : project.customCrop?.key;
+  const t = auto ? 'automatisch (größtmöglich)' : `eigener Ausschnitt${key && key !== 'frei' ? ' · ' + key : ''}`;
   $('#crop-state').textContent = t;
   if ($('#crop-summary')) $('#crop-summary').textContent = t.charAt(0).toUpperCase() + t.slice(1);
 }
@@ -587,6 +610,7 @@ function renderCrop() {
     ${corners.map(([x, y]) => `<rect x="${x - hs / 2}" y="${y - hs / 2}" width="${hs}" height="${hs}" rx="${hs / 4}" fill="#ffb547" stroke="#000" stroke-width="${0.002 * rw}"/>`).join('')}
   </svg>`;
   $$('#crop-aspect button').forEach(b => b.classList.toggle('on', b.dataset.v === cropUI.key));
+  updateCropState();
 }
 
 /** Schnittmenge konvexer Polygone (Sutherland-Hodgman). */
@@ -614,6 +638,7 @@ function intersectAll(quads, start) {
 /** Rahmen übernehmen, aber nie über den randfreien Bereich hinaus („stößt an“). */
 function setCropRect(cand) {
   if (cand.w < 0.06 || cand.h < 0.06) return;
+  cropUI.auto = false;
   if (Project.rectInside(cropUI.quads, cand)) { cropUI.rect = cand; return; }
   const a = cropUI.rect;
   let lo = 0, hi = 1;
@@ -666,6 +691,7 @@ $('#crop-aspect').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   cropUI.key = b.dataset.v;
+  cropUI.auto = false;
   const ratio = CROP_ASPECTS[cropUI.key];
   if (ratio) {
     const r = cropUI.rect, nr = Project.maxRectAt(cropUI.quads, r.x + r.w / 2, r.y + r.h / 2, ratio);
@@ -674,17 +700,24 @@ $('#crop-aspect').addEventListener('click', e => {
   renderCrop();
 });
 $('#crop-auto').onclick = () => {
-  project.customCrop = null;
-  closeCrop(false);
-  project.computeCrop();
-  layoutStage();
-  scheduleRefresh(0);
-  updateCropState();
-  toast('Automatischer Ausschnitt (größtmöglich).');
+  // automatischen (größtmöglichen) Ausschnitt im Editor anzeigen
+  const keep = project.customCrop;
+  project.customCrop = null; project.computeCrop();
+  const c = project.crop;
+  project.customCrop = keep;
+  cropUI.rect = { x: c.x, y: c.y, w: c.w, h: c.h };
+  cropUI.key = 'frei'; cropUI.auto = true;
+  renderCrop();
 };
-$('#crop-cancel').onclick = () => closeCrop(false);
-$('#crop-btn').onclick = () => openCrop();
-$('#crop-btn2').onclick = () => openCrop();
+$('#crop-cancel').onclick = () => {
+  const o = cropUI.orig;
+  project.customCrop = o; project.computeCrop();
+  const c = project.crop;
+  cropUI.rect = { x: c.x, y: c.y, w: c.w, h: c.h };
+  cropUI.key = o?.key || 'frei'; cropUI.auto = !o;
+  renderCrop();
+};
+$('#crop-btn2').onclick = () => showView('crop');
 
 // ---- Vollbild-Vorschau (Antippen der Vorschau) ----
 function enterFullscreen() {
@@ -869,10 +902,11 @@ async function refresh({ onProgress } = {}) {
   const gen = ++refreshGen;
   stats ||= new StatsEngine();
   project.computeCrop();
-  if (ui.view === 'edit') layoutStage();
+  if (onStage()) layoutStage();
   await stats.measure(project, { onProgress, isCancelled: () => gen !== refreshGen });
   if (gen !== refreshGen) return false;
   project.computeColor();
+  project.checkConsistency();
   project.assessQuality();
   $('#recalc').hidden = true;
   player?.invalidate();
@@ -898,7 +932,7 @@ function initPlayer() {
     markCurrent(frame);
   };
   player.onPlayState = on => $('#play').classList.toggle('playing', on);
-  window.addEventListener('resize', () => ui.view === 'edit' && layoutStage());
+  window.addEventListener('resize', () => onStage() && layoutStage());
 }
 
 function layoutStage() {
@@ -1989,4 +2023,4 @@ $('#resume-discard').onclick = async () => {
 })();
 
 // Für Tests/Fehlersuche
-window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner };
+window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner, refresh };

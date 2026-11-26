@@ -62,6 +62,12 @@ export class Player {
       return { layers: [{ key: 'p' + f.id, frame: f, M: I3(), weight: 1 }], mode: 'normal', neutral: true };
     }
     if (!p.crop) return { layers: [], mode: 'normal' };
+    if (this.inspect?.crop) {
+      // ausgerichtet in einem festen Ausschnitt (z. B. ganzes Bezugsfoto) – für die Prüfung
+      const L = p.layer(this.inspect.frame, 1);
+      L.M = p.layerMatrix(this.inspect.frame, this.inspect.crop);
+      return { layers: [L], mode: 'normal' };
+    }
     if (this.inspect) {
       const { frame, compare } = this.inspect;
       const ref = p.ref;
@@ -168,6 +174,14 @@ export class Player {
     if (compare === 'blink') {
       this._blinkTimer = setInterval(() => { this._blink ^= 1; this.render(); }, 450);
     }
+    this.render();
+  }
+
+  /** Foto ausgerichtet im Ausschnitt crop (Bezugsfoto-Koordinaten) zeigen. */
+  showAligned(frame, crop) {
+    this.pause();
+    clearInterval(this._blinkTimer);
+    this.inspect = { frame, crop };
     this.render();
   }
 

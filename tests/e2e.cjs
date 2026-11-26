@@ -137,8 +137,13 @@ async function plateScenario(browser, base, check) {
     check(frames.every(f => f.ok && f.q === 'good'), 'alle Fotos gut ausgerichtet');
     check(Math.max(...frames.map(f => f.rms)) < 1, `Restabweichung < 1 px (max ${Math.max(...frames.map(f => f.rms)).toFixed(2)})`);
     check(frames[2].gain < 0.9 && frames[3].gain > 1.15, 'Flackern erkannt und ausgeglichen');
-    await page.click('#primary');
+    await page.click('#primary'); // -> Zuschnitt
+    await page.waitForTimeout(600);
+    const cropStep = await page.evaluate(() => ({ view: window.__lapse.ui.view, panel: !document.querySelector('#panel-crop').hidden, btn: document.querySelector('#primary').textContent }));
+    check(cropStep.view === 'crop' && cropStep.panel && /Export/.test(cropStep.btn), `eigener Zuschnitt-Schritt (${cropStep.btn})`);
+    await page.click('#primary'); // -> Export
     await page.waitForTimeout(800);
+    check(await page.evaluate(() => window.__lapse.ui.view === 'export' && !window.__lapse.project.customCrop), 'Export ohne Änderung: automatischer Ausschnitt');
     for (const fmt of ['mp4-avc', 'webm-vp9', 'gif', 'zip']) {
       if (!(await page.$eval(`#formats input[value="${fmt}"]`, i => !i.disabled))) { console.log(`– ${fmt} in diesem Browser nicht verfügbar`); continue; }
       await page.click(`#formats input[value="${fmt}"]`);

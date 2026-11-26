@@ -472,7 +472,18 @@ export class StatsEngine {
       }
       const L = { key, M: project.layerMatrix(f), weight: 1 };
       this.r.draw([L], { target: { w: W, h: H } });
-      f.stats = statsOf(this.r.readTarget());
+      const px = this.r.readTarget();
+      f.stats = statsOf(px);
+      // kleines, normiertes Graubild für den Vergleich mit Nachbarbildern
+      const g = new Float32Array(px.length / 4);
+      let mean = 0;
+      for (let i = 0; i < g.length; i++) { g[i] = px[4 * i] * 0.3 + px[4 * i + 1] * 0.59 + px[4 * i + 2] * 0.11; mean += g[i]; }
+      mean /= g.length;
+      let ss = 0;
+      for (let i = 0; i < g.length; i++) { g[i] -= mean; ss += g[i] * g[i]; }
+      const nrm = Math.sqrt(ss) || 1;
+      for (let i = 0; i < g.length; i++) g[i] /= nrm;
+      f.cvec = g;
       this.r.trim(80);
       onProgress?.(++done, list.length);
       if (done % 8 === 0) await new Promise(r => setTimeout(r, 0));

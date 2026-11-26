@@ -22,14 +22,15 @@
       <button data-view="photos" class="step active"><b>1</b> Fotos</button>
       <button data-view="points" class="step" disabled><b>2</b> Punkte</button>
       <button data-view="edit" class="step" disabled><b>3</b> Vorschau</button>
-      <button data-view="export" class="step" disabled><b>4</b> Export</button>
+      <button data-view="crop" class="step" disabled><b>4</b> Zuschnitt</button>
+      <button data-view="export" class="step" disabled><b>5</b> Export</button>
     </nav>
   </header>
 
   <main>
     <!-- 1 · FOTOS -->
     <section id="view-photos" class="view">
-      <div class="guide" id="guide-photos"><b>Schritt 1 von 4 · Fotos auswählen</b><p>Wähle alle Fotos deiner Serie aus. Danach geht es unten mit dem orangen Knopf weiter.</p></div>
+      <div class="guide" id="guide-photos"><b>Schritt 1 von 5 · Fotos auswählen</b><p>Wähle alle Fotos deiner Serie aus. Danach geht es unten mit dem orangen Knopf weiter.</p></div>
       <div id="empty" class="empty">
         <div class="empty-art" aria-hidden="true">
           <span></span><span></span><span></span>
@@ -78,7 +79,7 @@
 
     <!-- 2 · PUNKTE -->
     <section id="view-points" class="view" hidden>
-      <div class="guide" id="guide-points"><b>Schritt 2 von 4 · Bezugspunkte setzen</b><p>Tippe im Foto auf 4–5 Stellen, die in allen Fotos vorhanden sind (z. B. die ersten Haferflocken). Dann unten „Alle Fotos ausrichten“.</p></div>
+      <div class="guide" id="guide-points"><b>Schritt 2 von 5 · Bezugspunkte setzen</b><p>Tippe im Foto auf 4–5 Stellen, die in allen Fotos vorhanden sind (z. B. die ersten Haferflocken). Dann unten „Alle Fotos ausrichten“.</p></div>
       <div class="stage-wrap pts-wrap">
         <div class="stage" id="pts-stage">
           <canvas id="pts-canvas"></canvas>
@@ -111,7 +112,8 @@
 
     <!-- 3 · VORSCHAU -->
     <section id="view-edit" class="view" hidden>
-      <div class="guide" id="guide-edit"><b>Schritt 3 von 4 · Vorschau & Feinschliff</b><p>Video antippen = Vollbild. Darunter Tempo und Bild anpassen. Wenn alles passt: unten „Weiter zum Export“.</p></div>
+      <div class="guide" id="guide-edit"><b>Schritt 3 von 5 · Vorschau & Feinschliff</b><p>Video antippen = Vollbild. Darunter Tempo und Bild anpassen. Wenn alles passt: unten „Weiter: Zuschnitt“.</p></div>
+      <div class="guide" id="guide-crop" hidden><b>Schritt 4 von 5 · Video zuschneiden</b><p>Der helle Rahmen ist der Bildausschnitt des Videos. Format wählen, Rahmen verschieben oder an den Ecken ziehen. Fertig? Unten „Übernehmen &amp; weiter“.</p></div>
       <div class="issues" id="issues" hidden>
         <span id="issues-text"></span>
         <button class="btn small warn" id="issues-btn">Jetzt prüfen</button>
@@ -134,10 +136,6 @@
         </button>
         <input type="range" id="scrub" min="0" max="1000" value="0" step="1" aria-label="Zeitposition">
         <span class="time" id="time">0:00 / 0:00</span>
-      </div>
-      <div class="crop-row">
-        <button class="btn small" id="crop-btn">✂ Bildausschnitt anpassen</button>
-        <span class="muted small" id="crop-state"></span>
       </div>
 
       <div class="strip-head">
@@ -201,6 +199,7 @@
           </figure>
           <p class="rv-q" id="rv-q"></p>
         </div>
+        <button class="btn wide rv-hold" id="rv-hold">◐ Bezugsfoto zeigen (gedrückt halten)</button>
         <div class="btn-row">
           <button class="btn" id="rv-retap">Nein – Flocken antippen</button>
           <button class="btn ghost" id="rv-remove">Foto entfernen</button>
@@ -212,6 +211,7 @@
         <div class="rv-head">
           <div>
             <div class="rv-title">Bildausschnitt wählen</div>
+            <div class="small" id="crop-state"></div>
             <div class="muted small">Rahmen mit dem Finger verschieben oder an den Ecken ziehen.</div>
           </div>
         </div>
@@ -225,7 +225,7 @@
         <p class="help">Nur im hellen Bereich haben alle Fotos Bildinhalt – der Rahmen bleibt deshalb darin, damit keine Ränder entstehen.</p>
         <div class="btn-row">
           <button class="btn" id="crop-auto">Automatisch (größtmöglich)</button>
-          <button class="btn ghost" id="crop-cancel">Abbrechen</button>
+          <button class="btn ghost" id="crop-cancel">Änderungen verwerfen</button>
         </div>
       </div>
 
@@ -369,7 +369,7 @@
 
     <!-- 3 · EXPORT -->
     <section id="view-export" class="view" hidden>
-      <div class="guide" id="guide-export"><b>Schritt 4 von 4 · Video speichern</b><p>Format und Qualität wählen (die Voreinstellung passt fürs iPhone), dann unten „Video erstellen“ und im Fenster „In Fotos sichern“.</p></div>
+      <div class="guide" id="guide-export"><b>Schritt 5 von 5 · Video speichern</b><p>Format und Qualität wählen (die Voreinstellung passt fürs iPhone), dann unten „Video erstellen“ und im Fenster „In Fotos sichern“.</p></div>
       <div class="card">
         <h2>Format</h2>
         <div id="formats" class="radio-list"></div>
