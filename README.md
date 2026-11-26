@@ -2,12 +2,12 @@
 
 Lapse macht aus einer Fotoserie ein ruhiges, flackerfreies Zeitraffer-Video – direkt im Browser auf dem iPhone, ohne Installation, ohne Upload, ohne Kosten.
 
-1. **Fotos auswählen** – beliebig viele (sinnvoll: 30–500), sortiert nach Aufnahmezeit (EXIF) oder Dateiname.
-2. **Automatisch ausrichten** – Lapse erkennt markante Bildpunkte, richtet jedes Foto exakt auf ein Referenzbild aus (Verschiebung, Drehung, Zoom, optional Perspektive), schneidet alle auf den größten gemeinsamen Bereich zu und gleicht Belichtung und Farbe an.
-3. **Vorschau & Nachbessern** – Video in Echtzeit ansehen, Geschwindigkeit/Überblendung/Format einstellen, einzelne Fotos prüfen (Überlagern, Differenz, Blinken) und korrigieren.
-4. **Exportieren** – MP4 (H.264/HEVC), WebM, GIF oder ausgerichtete JPEG-Einzelbilder (ZIP); direkt in die Fotos-App sichern oder teilen.
+1. **Fotos** auswählen.
+2. **Punkte:** Auf *einem* Foto 2–5 Stellen antippen, die in allen Fotos vorhanden sind und sich nicht bewegen (z. B. die ersten Haferflocken in einer Petrischale). Lapse findet sie in allen anderen Fotos selbst – auch bei beliebiger Drehung, anderem Zoom und anderem Licht – richtet danach aus, schneidet ohne Ränder zu und gleicht Helligkeit und Farbe an. (Für Stativaufnahmen ohne Drehung gibt es „Ohne Punkte automatisch ausrichten“.)
+3. **Vorschau:** Antippen = Vollbild-Wiedergabe. Reiter *Tempo* (Geschwindigkeit, Überblendung), *Bild* (Format, Angleichen, Belichtung, Kontrast, Sättigung) und *Fotos* (unsichere Fotos prüfen und Punkte per Finger korrigieren). Seltenes steckt unter „Mehr“.
+4. **Export:** MP4, HEVC, WebM, GIF oder JPEG-Einzelbilder; danach „In Fotos sichern“.
 
-Alle Berechnungen laufen lokal auf dem Gerät. Die Originalfotos werden nur gelesen, nie verändert.
+Projekt und letztes Video werden laufend auf dem Gerät gesichert („Letztes Projekt fortsetzen“ nach einem Neuladen). Alle Berechnungen laufen lokal; die Originalfotos werden nur gelesen, nie verändert.
 
 ## Auf dem iPhone verwenden
 

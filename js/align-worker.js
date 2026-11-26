@@ -9,9 +9,9 @@
 // Beide Ergebnisse werden mit derselben Kennzahl (NCC) bewertet, das bessere gewinnt.
 
 import { detect, match } from './features.js';
-import { ransac, I3, mul, inv, isPlausible } from './geometry.js';
+import { ransac, I3, mul, inv, isPlausible, fitModel } from './geometry.js';
 import { pyramid, alignDirect, score, roiPyramid } from './direct.js';
-import { trackAnchors, anchorUniqueness } from './anchors.js';
+import { trackAnchors, anchorUniqueness, locateAnchors } from './anchors.js';
 
 const store = new Map(); // id -> { n, xy (kanonisch), desc, res }
 let ref = null;          // { id, pyr, m } Referenz für flächenbasierte Ausrichtung / Ankerpunkte
@@ -139,6 +139,29 @@ function handle(msg) {
       const refined = worst <= msg.tolPx && ncc != null && ncc >= baseR - 0.005;
       if (!refined) { H = msg.hyps[best.i].H; ncc = baseR; }
       return { type: 'refineAnchored', ok: true, idx: best.i, H, ncc, refined, worst };
+    }
+    case 'locate': {
+      // Punkte in einem Foto finden – ohne Vorwissen über Drehung/Zoom (siehe anchors.js)
+      if (!ref || ref.id !== msg.refId) return { type: 'locate', id: msg.id, ok: false };
+      const pyr = pyramid(new Uint8Array(msg.gray), msg.w, msg.h);
+      const img = { pyr, m: Math.max(msg.w, msg.h) };
+      const featOf = (id, L) => {
+        if (store.has(id)) return store.get(id);
+        // Merkmale fehlen (z. B. nach dem Wiederherstellen) -> aus dem Graubild berechnen
+        const g = new Uint8Array(L.w * L.h);
+        for (let i = 0; i < g.length; i++) g[i] = Math.max(0, Math.min(255, L.img[i]));
+        const f = detect(g, L.w, L.h, { maxFeatures: 2500 });
+        const m = Math.max(L.w, L.h);
+        for (let i = 0; i < f.xy.length; i++) f.xy[i] /= m;
+        const rec = { n: f.n, xy: f.xy, desc: f.desc, res: m };
+        store.set(id, rec);
+        return rec;
+      };
+      const rf = featOf(msg.refId, ref.pyr[0]), mf = featOf(msg.id, pyr[0]);
+      const loc = locateAnchors(ref, img, rf, mf, msg.anchors, { match, fitModel });
+      if (!loc) return { type: 'locate', id: msg.id, ok: false };
+      const points = trackAnchors(ref, img, msg.anchors, loc.predH);
+      return { type: 'locate', id: msg.id, ok: true, points, score: loc.score, predH: loc.predH };
     }
     case 'uniq': {
       if (!ref || ref.id !== msg.refId) return { type: 'uniq', values: [] };

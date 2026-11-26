@@ -1,11 +1,12 @@
 // Lapse – Steuerung der Oberfläche.
 
 import { Project, newManual, DEFAULT_SETTINGS } from './project.js';
-import { Aligner, importFiles, sortFrames, alignAll, refineFrame, StatsEngine, anchorUniqueness, trackAllAnchors, refineAnchored, snapFrameAnchors } from './pipeline.js';
+import { Aligner, importFiles, sortFrames, alignAll, refineFrame, StatsEngine, anchorUniqueness, trackAllAnchors, refineAnchored, snapFrameAnchors, alignByAnchors } from './pipeline.js';
 import { Player } from './player.js';
 import { FORMATS, findConfig, mediaRecorderType, outputSize, sourceDetail, runExport, exportPlan, qualityName } from './export.js';
 import { inv, mul, apply, I3 } from './geometry.js';
 import { BUILD, BUILD_DATE, isDev } from './version.js';
+import { ProjectStore } from './store.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -30,6 +31,30 @@ const ui = {
 if (ui.exp.quality) { ui.exp.q = { standard: 42, high: 65, max: 86 }[ui.exp.quality] ?? 65; delete ui.exp.quality; }
 
 let aligner = null, stats = null, player = null;
+
+// ---------------------------------------------------------------- Speichern auf dem Gerät
+// Projekt (Fotos, Fixpunkte, Ausrichtung, Einstellungen) und letztes Video werden laufend
+// gesichert – damit nichts verloren geht, wenn iOS den Tab neu lädt.
+const db = new ProjectStore();
+let saveTimer = 0, saving = false, dirty = false, resumeOffered = false;
+function scheduleSave(delay = 1200) {
+  if (!db.available || !project.frames.length) return;
+  dirty = true;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, delay);
+}
+async function saveNow() {
+  clearTimeout(saveTimer);
+  if (!dirty || saving || !project.frames.length) return;
+  saving = true; dirty = false;
+  try { await db.save(project); }
+  catch (err) {
+    console.error(err);
+    if (!saveNow.warned) { saveNow.warned = true; toast('Projekt konnte nicht auf dem Gerät gesichert werden (Speicher voll?).', 6000); }
+  } finally { saving = false; if (dirty) scheduleSave(); }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveNow(); });
+window.addEventListener('pagehide', () => saveNow());
 const getAligner = () => (aligner ||= new Aligner());
 
 // ---------------------------------------------------------------- Hilfen
@@ -79,18 +104,24 @@ function fmtClock(s) {
 function showView(v) {
   if (anc.on && v !== 'edit') closeAnchors({ refreshAfter: false });
   ui.view = v;
-  for (const s of ['photos', 'edit', 'export']) $('#view-' + s).hidden = s !== v;
+  if (v !== 'edit') exitFullscreen();
+  for (const s of ['photos', 'points', 'edit', 'export']) $('#view-' + s).hidden = s !== v;
   $$('.step').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   if (v !== 'edit') player?.pause();
   if (v === 'edit') { layoutStage(); renderStrip(); updateFramePanel(); player.invalidate(); }
   if (v === 'export') refreshExport();
+  if (v === 'points') renderPoints();
   updatePrimary();
   window.scrollTo({ top: 0 });
 }
 
 function updateSteps() {
   const ok = project.aligned && project.included.length >= 2;
-  $$('.step').forEach(b => { if (b.dataset.view !== 'photos') b.disabled = !ok; });
+  const canPoints = project.frames.length >= 2 && !project.frames.some(f => f.analyzing);
+  $$('.step').forEach(b => {
+    if (b.dataset.view === 'points') b.disabled = !canPoints;
+    else if (b.dataset.view !== 'photos') b.disabled = !ok;
+  });
 }
 
 function updatePrimary() {
@@ -99,8 +130,11 @@ function updatePrimary() {
   if (ui.view === 'photos') {
     if (!n) b.textContent = 'Fotos auswählen';
     else if (n < 2) { b.textContent = 'Mindestens 2 Fotos nötig'; b.disabled = true; }
-    else if (!project.aligned) b.textContent = `Ausrichten & weiter (${n} Fotos)`;
-    else b.textContent = 'Weiter zur Bearbeitung';
+    else b.textContent = project.aligned ? 'Weiter zur Vorschau' : 'Weiter: Bezugspunkte setzen';
+  } else if (ui.view === 'points') {
+    const k = project.anchors.length;
+    b.textContent = k < 2 ? `Noch ${2 - k} Punkt${k === 1 ? '' : 'e'} setzen` : `Alle ${n} Fotos ausrichten`;
+    b.disabled = k < 2;
   } else if (ui.view === 'edit') b.textContent = 'Weiter zum Export';
   else b.textContent = ui.exp.format === 'zip' ? 'Einzelbilder exportieren' : ui.exp.format === 'gif' ? 'GIF erstellen' : 'Video erstellen';
 }
@@ -110,9 +144,10 @@ $$('.step').forEach(b => b.onclick = () => !b.disabled && showView(b.dataset.vie
 $('#primary').onclick = () => {
   if (ui.view === 'photos') {
     if (!project.frames.length) $('#file').click();
-    else if (!project.aligned) runAlign();
-    else showView('edit');
-  } else if (ui.view === 'edit') showView('export');
+    else if (project.aligned) showView('edit');
+    else showView('points');
+  } else if (ui.view === 'points') runAnchorAlign();
+  else if (ui.view === 'edit') showView('export');
   else doExport();
 };
 
@@ -125,6 +160,8 @@ $('#file').onchange = async e => {
 };
 
 async function addFiles(files) {
+  if (resumeOffered && !project.frames.length) { resumeOffered = false; $('#resume').hidden = true; try { await db.clearProject(); } catch { /* egal */ } }
+  db.persist();
   $('#empty').hidden = true;
   $('#photos-main').hidden = false;
   progress.open(`${files.length} Fotos werden geladen`);
@@ -143,6 +180,7 @@ async function addFiles(files) {
   renderGrid();
   updateSteps();
   updatePrimary();
+  scheduleSave(0);
   if (errors.length) toast(`${errors.length} Datei(en) konnten nicht gelesen werden.`, 4500);
   else if (project.frames.length >= 2) toast('Fotos bereit – jetzt ausrichten.');
 }
@@ -184,6 +222,9 @@ function removeFrames(ids) {
   project.aligned = false;
   renderGrid();
   updateSteps();
+  if (db.available) {
+    (project.frames.length ? db.removeFrames(ids).then(() => scheduleSave(0)) : db.clearProject()).catch(() => {});
+  }
 }
 
 $('#clear-all').onclick = () => {
@@ -240,6 +281,213 @@ async function runAlign() {
   }
 }
 
+/** Hauptweg: Punkte einmal gesetzt -> alle Fotos danach ausrichten. */
+async function runAnchorAlign() {
+  if (project.anchors.length < 2) return;
+  const n = project.frames.length;
+  progress.open('Fotos werden ausgerichtet');
+  await keepAwake(true);
+  try {
+    const res = await alignByAnchors(project, getAligner(), {
+      isCancelled: () => progress.cancelled,
+      onProgress: (d, t) => progress.set(d / t * 0.75, `Punkte suchen: Foto ${d} von ${t}`),
+    });
+    if (!res) { progress.close(); toast('Abgebrochen.'); return; }
+    progress.set(0.75, 'Zuschnitt, Helligkeit und Farbe werden berechnet …');
+    await refresh({ onProgress: (d, t) => progress.set(0.75 + 0.25 * d / t, `Helligkeit & Farbe messen: ${d} von ${t}`) });
+    progress.close();
+    updateSteps();
+    if (!player) initPlayer();
+    showView('edit');
+    if (res.failed.length) {
+      setTab('frame');
+      toast(`${n - res.failed.length} von ${n} Fotos ausgerichtet. ${res.failed.length} Foto(s) unsicher – im Reiter „Fotos“ antippen und Punkte korrigieren.`, 7000);
+    } else toast(`Alle ${n} Fotos ausgerichtet. Vorschau antippen für Vollbild.`, 4500);
+  } catch (err) {
+    progress.close();
+    console.error(err);
+    toast('Fehler beim Ausrichten: ' + err.message, 6000);
+  } finally {
+    keepAwake(false);
+  }
+}
+
+// ---- Vollbild-Vorschau (Antippen der Vorschau) ----
+function enterFullscreen() {
+  if (!player || ui.fs) return;
+  ui.fs = true;
+  $('#stage').classList.add('fs');
+  document.body.classList.add('fs-open');
+  $('#fs-hint').textContent = 'Antippen zum Schließen';
+  layoutStage();
+  player.play();
+}
+function exitFullscreen() {
+  if (!ui.fs) return;
+  ui.fs = false;
+  $('#stage').classList.remove('fs');
+  document.body.classList.remove('fs-open');
+  $('#fs-hint').textContent = '⤢ Antippen für Vollbild';
+  player?.pause();
+  layoutStage();
+}
+$('#stage').addEventListener('click', e => {
+  if (anc.on || e.target.closest('.anchor-layer')) return;
+  ui.fs ? exitFullscreen() : enterFullscreen();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') exitFullscreen(); });
+
+// ---- Punkte-Ansicht: Bezugspunkte einmal setzen ----
+const pv = { bmp: null, bmpId: null, drag: null, rect: null };
+function ptsRef() {
+  if (!project.ref || !project.frames.includes(project.ref)) {
+    project.settings.refMode = 'manual';
+    project.refId = project.frames[0]?.id || null;
+  }
+  return project.ref;
+}
+
+async function renderPoints() {
+  const f = ptsRef();
+  if (!f) return;
+  const wrap = $('#view-points .stage-wrap');
+  const aspect = f.w / f.h, avail = wrap.clientWidth || window.innerWidth - 32;
+  const maxH = Math.min(window.innerHeight * 0.55, 900);
+  const w = Math.min(avail, maxH * aspect), h = w / aspect;
+  const st = $('#pts-stage');
+  st.style.width = w + 'px'; st.style.height = h + 'px';
+  if (pv.bmpId !== f.id) {
+    pv.bmp?.close?.(); pv.bmp = null; pv.bmpId = f.id;
+    try { pv.bmp = await createImageBitmap(f.previewBlob); } catch { /* ohne Bild */ }
+  }
+  const c = $('#pts-canvas'), dpr = Math.min(2, window.devicePixelRatio || 1);
+  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  if (pv.bmp) { const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(pv.bmp, 0, 0, c.width, c.height); }
+  renderPointMarkers();
+}
+
+function renderPointMarkers() {
+  const f = project.ref;
+  if (!f) return;
+  $('#pts-layer').innerHTML = project.anchors.map((a, k) => {
+    const [l, t] = canonToPct(f, a.x, a.y);
+    const cls = a.uniq == null ? '' : a.uniq >= 0.5 ? 'good' : a.uniq >= 0.25 ? 'warn' : 'bad';
+    return `<div class="anchor-pt ${cls}${pv.drag?.k === k ? ' drag' : ''}" style="left:${l}%;top:${t}%"><span>${k + 1}</span></div>`;
+  }).join('');
+  const n = project.anchors.length;
+  $('#pts-help').innerHTML = n === 0
+    ? '<b>Tippe auf 2–3 Stellen</b>, die in <b>allen</b> Fotos vorhanden sind und sich nicht bewegen – z. B. die ersten Haferflocken. Möglichst weit auseinander. Lapse findet sie danach in allen Fotos selbst.'
+    : n === 1 ? 'Gut. Noch mindestens <b>einen weiteren Punkt</b> antippen.'
+    : 'Prima. Optional einen weiteren Punkt setzen (genauer) – dann unten <b>„Alle Fotos ausrichten“</b>. Punkte lassen sich ziehen.';
+  $('#pts-list').innerHTML = project.anchors.map((a, k) => {
+    const t = a.uniq == null ? 'wird geprüft …' : a.uniq >= 0.5 ? 'gut erkennbare Stelle ✓'
+      : a.uniqReason === 'flach' ? 'einfarbige Fläche – bitte andere Stelle wählen'
+      : a.uniqReason === 'rand' ? 'zu nah am Rand' : 'schwer erkennbar – besser eine markantere Stelle';
+    const cls = a.uniq == null ? '' : a.uniq >= 0.5 ? 'good' : a.uniq >= 0.25 ? 'warn' : 'bad';
+    return `<li><span class="n ${cls}">${k + 1}</span><span class="t">${t}</span><button data-del="${k}" aria-label="Punkt ${k + 1} löschen">×</button></li>`;
+  }).join('');
+  $('#pts-undo').disabled = !n;
+  updatePrimary();
+}
+
+let ptsTimer = 0;
+function pointsChanged() {
+  // geänderte Punkte -> neu ausrichten nötig
+  if (project.aligned && project.anchorsActive) { project.aligned = false; updateSteps(); }
+  project.resetAnchors(true);
+  renderPointMarkers();
+  scheduleSave();
+  clearTimeout(ptsTimer);
+  ptsTimer = setTimeout(() => anchorUniqueness(project, getAligner()).then(renderPointMarkers).catch(() => {}), 300);
+}
+
+const ptsLayer = $('#pts-layer');
+ptsLayer.addEventListener('pointerdown', e => {
+  const f = project.ref;
+  if (!f) return;
+  const rect = ptsLayer.getBoundingClientRect(), m = Math.max(f.w, f.h);
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  let hit = -1, best = 28;
+  project.anchors.forEach((a, k) => {
+    const d = Math.hypot(a.x * m / f.w * rect.width - sx, a.y * m / f.h * rect.height - sy);
+    if (d < best) { best = d; hit = k; }
+  });
+  if (hit < 0) {
+    if (project.anchors.length >= 5) { toast('Höchstens 5 Punkte.'); return; }
+    project.anchors.push({ x: sx / rect.width * f.w / m, y: sy / rect.height * f.h / m });
+    hit = project.anchors.length - 1;
+    pointsChanged();
+  }
+  const a = project.anchors[hit];
+  pv.drag = { k: hit, cx: e.clientX, cy: e.clientY, ox: a.x, oy: a.y, rect, m, moved: false };
+  ptsLayer.setPointerCapture(e.pointerId);
+  drawPtsLoupe(a.x, a.y);
+  renderPointMarkers();
+});
+ptsLayer.addEventListener('pointermove', e => {
+  const d = pv.drag, f = project.ref;
+  if (!d) return;
+  if (Math.hypot(e.clientX - d.cx, e.clientY - d.cy) > 2) d.moved = true;
+  const a = project.anchors[d.k];
+  a.x = Math.max(0, Math.min(f.w / d.m, d.ox + (e.clientX - d.cx) / d.rect.width * f.w / d.m));
+  a.y = Math.max(0, Math.min(f.h / d.m, d.oy + (e.clientY - d.cy) / d.rect.height * f.h / d.m));
+  renderPointMarkers();
+  drawPtsLoupe(a.x, a.y);
+});
+const ptsEnd = () => {
+  const d = pv.drag;
+  if (!d) return;
+  pv.drag = null;
+  $('#pts-loupe').hidden = true;
+  if (d.moved) { project.anchors[d.k].uniq = null; pointsChanged(); } else renderPointMarkers();
+};
+ptsLayer.addEventListener('pointerup', ptsEnd);
+ptsLayer.addEventListener('pointercancel', ptsEnd);
+
+function drawPtsLoupe(x, y) {
+  const f = project.ref, c = $('#pts-loupe'), rect = ptsLayer.getBoundingClientRect(), m = Math.max(f.w, f.h);
+  const u = x * m / f.w, v = y * m / f.h, px = u * rect.width, py = v * rect.height;
+  c.hidden = false;
+  c.style.left = Math.max(0, Math.min(rect.width - 120, px - 60)) + 'px';
+  c.style.top = (py - 150 >= 0 ? py - 150 : Math.min(rect.height - 120, py + 30)) + 'px';
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 240, 240);
+  const b = pv.bmp;
+  if (b) { const src = 120 / (3 * rect.width / b.width); ctx.drawImage(b, u * b.width - src / 2, v * b.height - src / 2, src, src, 0, 0, 240, 240); }
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(120, 90); ctx.lineTo(120, 110); ctx.moveTo(120, 130); ctx.lineTo(120, 150);
+  ctx.moveTo(90, 120); ctx.lineTo(110, 120); ctx.moveTo(130, 120); ctx.lineTo(150, 120); ctx.stroke();
+}
+
+$('#pts-list').onclick = e => {
+  const k = e.target.closest('[data-del]')?.dataset.del;
+  if (k == null) return;
+  project.anchors.splice(+k, 1);
+  pointsChanged();
+};
+$('#pts-undo').onclick = () => { project.anchors.pop(); pointsChanged(); };
+$('#pts-choose').onclick = () => {
+  const strip = $('#pts-strip');
+  strip.hidden = !strip.hidden;
+  if (strip.hidden) return;
+  strip.innerHTML = project.frames.map(f => `<button class="sf${f.id === project.refId ? ' sel' : ''}" data-id="${f.id}"><img src="${f.thumbUrl}" alt="" loading="lazy"></button>`).join('');
+};
+$('#pts-strip').onclick = e => {
+  const id = e.target.closest('.sf')?.dataset.id;
+  if (!id || id === project.refId) return;
+  if (project.anchors.length && !confirm('Bezugsfoto wechseln? Die gesetzten Punkte werden gelöscht.')) return;
+  project.settings.refMode = 'manual';
+  project.refId = id;
+  project.anchors = [];
+  project.aligned = false;
+  updateSteps();
+  $('#pts-strip').hidden = true;
+  pointsChanged();
+  renderPoints();
+};
+window.addEventListener('resize', () => { if (ui.view === 'points') renderPoints(); });
+$('#pts-auto').onclick = () => { project.resetAnchors(false); runAlign(); };
+
 // Neuberechnung nach Änderungen (Zuschnitt -> Messung -> Farbangleich -> Qualität)
 let refreshGen = 0, refreshTimer = 0;
 async function refresh({ onProgress } = {}) {
@@ -255,6 +503,7 @@ async function refresh({ onProgress } = {}) {
   player?.invalidate();
   if (ui.view === 'edit') { renderStrip(); updateFramePanel(); updateCropHelp(); }
   renderNotice();
+  scheduleSave();
   return true;
 }
 function scheduleRefresh(delay = 450) {
@@ -278,6 +527,15 @@ function initPlayer() {
 
 function layoutStage() {
   if (!player || !project.crop) return;
+  if (ui.fs) {
+    const a = project.crop.w / project.crop.h, W = window.innerWidth, H = window.innerHeight;
+    let w = Math.min(W, H * a), h = w / a;
+    const c = $('#preview');
+    c.style.width = w + 'px'; c.style.height = h + 'px';
+    player.setSize(w, h);
+    return;
+  }
+  $('#preview').style.width = ''; $('#preview').style.height = '';
   // Ankerpunkt-Modus: ganzes Foto, größer dargestellt
   const aspect = anc.on ? anc.frame.w / anc.frame.h : project.crop.w / project.crop.h;
   const avail = $('.stage-wrap').clientWidth || window.innerWidth - 32;
@@ -330,7 +588,7 @@ function renderStrip() {
   const flagged = inc.filter(f => f.quality === 'warn' || f.quality === 'bad');
   $('#strip-info').textContent = `${inc.length} von ${frames.length} Fotos im Video`;
   const fx = $('#fix-flagged');
-  fx.hidden = !flagged.length;
+  fx.hidden = !flagged.length || project.anchorsActive;
   fx.textContent = `${flagged.length} auffällige präzise nachrechnen`;
   updateDuration();
 }
@@ -556,7 +814,8 @@ $('#fix-flagged').onclick = async () => {
 // Hinweis: einzelnes Foto verkleinert den Ausschnitt stark
 let noticeFrame = null;
 function renderNotice() {
-  const lim = project.aligned ? project.cropLimiters() : [];
+  // Bei Ausrichtung über Punkte (gedrehte Fotos) ist ein kleinerer Ausschnitt normal -> kein Hinweis
+  const lim = project.aligned && !project.anchorsActive ? project.cropLimiters() : [];
   noticeFrame = lim[0]?.frame || null;
   $('#notice').hidden = !noticeFrame;
   if (!noticeFrame) return;
@@ -702,6 +961,7 @@ function renderAnchors() {
 /** Punkte im Referenzbild geändert -> gefundene Punkte verwerfen, Eindeutigkeit neu prüfen. */
 let uniqTimer = 0;
 function anchorsChanged() {
+  scheduleSave();
   if (project.anchorsActive) project.disableAnchors();
   for (const g of project.frames) g.anchorPts = null;
   renderAnchors();
@@ -802,6 +1062,7 @@ const endDrag = () => {
 
 /** Handpunkte eines Fotos übernehmen: Ausrichtung sofort neu berechnen. */
 function commitFrameAnchors(f) {
+  scheduleSave();
   project.applyAnchors(f);
   project.anchorsActive = true;
   project.assessQuality();
@@ -880,7 +1141,7 @@ $('#anc-track').onclick = async () => {
   progress.open('Ankerpunkte werden gesucht');
   await keepAwake(true);
   try {
-    const ok = await trackAllAnchors(project, getAligner(), {
+    const ok = await alignByAnchors(project, getAligner(), {
       isCancelled: () => progress.cancelled,
       onProgress: (d, t) => progress.set(d / t, `Foto ${d} von ${t}`),
     });
@@ -941,12 +1202,11 @@ function syncSettingsUI() {
     const [, k, op, v] = el.dataset.if.match(/(\w+)(==|!=)(\w+)/);
     el.hidden = op === '==' ? String(s[k]) !== v : String(s[k]) === v;
   });
-  const names = { translation: 'Stativ', similarity: 'Leicht bewegt', homography: 'Freihand' };
-  $('#align-summary').textContent = `· ${names[s.model]}, ${s.precision === 'precise' ? 'präzise' : 'schnell'}`;
 }
 
 function onSetting(key) {
   const s = project.settings;
+  scheduleSave();
   store.set('settings', s);
   syncSettingsUI();
   if (VIDEO_KEYS.has(key)) { player?.invalidate(); updateDuration(); }
@@ -1156,7 +1416,7 @@ async function doExport() {
   }
 }
 
-function showResult(res, plan) {
+function showResult(res, plan, opts = {}) {
   if (ui.result) URL.revokeObjectURL(ui.result.url);
   const url = URL.createObjectURL(res.blob);
   ui.result = { ...res, url };
@@ -1172,11 +1432,30 @@ function showResult(res, plan) {
   $('#result-info').textContent = info;
   $('#share').textContent = res.blob.type.startsWith('video/') ? 'In Fotos sichern / Teilen' : 'Teilen / Sichern';
   $('#result').hidden = false;
-  $('#result').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  toast(`Fertig: ${res.name}`);
+  if (opts.modal === false) return;
+  // Deutliches Fenster zum Sichern (Export allein speichert noch nichts)
+  const isVid = res.blob.type.startsWith('video/');
+  $('#done-title').textContent = isVid ? 'Video fertig ✓' : res.blob.type === 'image/gif' ? 'GIF fertig ✓' : 'Einzelbilder fertig ✓';
+  $('#done-media').innerHTML = isVid ? `<video src="${url}" controls playsinline loop muted autoplay></video>` : res.blob.type === 'image/gif' ? `<img src="${url}" alt="">` : '';
+  $('#done-info').textContent = info;
+  $('#done-share').textContent = isVid ? 'In Fotos sichern' : 'Teilen / Sichern';
+  $('#done').hidden = false;
+  db.saveExport(res).then(() => showLastVideo(res)).catch(() => toast('Hinweis: Das Video konnte nicht in Lapse aufbewahrt werden – bitte jetzt sichern.', 6000));
 }
 
-$('#share').onclick = async () => {
+function showLastVideo(r) {
+  if (!r) return;
+  $('#lv-info').textContent = `${r.name} · ${r.w}×${r.h} · ${num((r.blob?.size || 0) / 1e6, 1)} MB`;
+  $('#last-video').hidden = false;
+}
+$('#done-close').onclick = () => { $('#done').hidden = true; };
+$('#done-share').onclick = () => shareResult();
+$('#done-download').onclick = () => download();
+$('#lv-share').onclick = () => shareResult();
+$('#lv-download').onclick = () => download();
+
+$('#share').onclick = () => shareResult();
+async function shareResult() {
   const r = ui.result;
   if (!r) return;
   const file = new File([r.blob], r.name, { type: r.blob.type });
@@ -1185,7 +1464,7 @@ $('#share').onclick = async () => {
     catch (err) { if (err.name === 'AbortError') return; }
   }
   download();
-};
+}
 $('#download').onclick = () => download();
 function download() {
   const r = ui.result;
@@ -1263,6 +1542,62 @@ window.addEventListener('resize', measureHeader);
 measureHeader();
 syncSettingsUI();
 updatePrimary();
+
+// Gespeichertes Projekt / letztes Video anbieten
+async function resumeProject() {
+  progress.open('Projekt wird geladen', { cancellable: false });
+  try {
+    const data = await db.load();
+    if (!data || !data.frames.length) { toast('Kein gespeichertes Projekt gefunden.'); $('#resume').hidden = true; return; }
+    resumeOffered = false;
+    $('#resume').hidden = true;
+    Object.assign(project.settings, data.meta.settings || {});
+    project.frames = data.frames.map(f => ({ ...f, thumbUrl: URL.createObjectURL(f.thumbBlob || f.previewBlob) }));
+    project.refId = data.meta.refId;
+    project.anchors = data.meta.anchors || [];
+    project.anchorsActive = !!data.meta.anchorsActive;
+    project.aligned = !!data.meta.aligned && project.frames.some(f => f.id === project.refId);
+    syncSettingsUI();
+    renderGrid();
+    updateSteps();
+    if (project.aligned) {
+      progress.set(0.4, 'Zuschnitt und Farbe werden berechnet …');
+      if (!player) initPlayer();
+      await refresh();
+      showView('edit');
+    }
+    toast(`Projekt mit ${project.frames.length} Fotos wiederhergestellt.`);
+  } catch (err) {
+    console.error(err);
+    toast('Projekt konnte nicht geladen werden: ' + err.message, 6000);
+  } finally {
+    progress.close();
+  }
+}
+$('#resume-btn').onclick = () => resumeProject();
+$('#resume-discard').onclick = async () => {
+  if (!confirm('Gespeichertes Projekt verwerfen? (Deine Originalfotos bleiben unberührt.)')) return;
+  await db.clearProject().catch(() => {});
+  resumeOffered = false;
+  $('#resume').hidden = true;
+};
+(async () => {
+  if (!db.available) return;
+  try {
+    const info = await db.info();
+    if (info && !project.frames.length) {
+      resumeOffered = true;
+      const when = new Date(info.savedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+      $('#resume-info').textContent = `${info.count} Fotos · zuletzt gespeichert ${when}`;
+      $('#resume').hidden = false;
+    }
+    const lv = await db.lastExport();
+    if (lv?.blob) {
+      showResult({ blob: lv.blob, name: lv.name, w: lv.w, h: lv.h, duration: lv.duration }, null, { modal: false });
+      showLastVideo(lv);
+    }
+  } catch (err) { console.error(err); }
+})();
 
 // Für Tests/Fehlersuche
 window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner };

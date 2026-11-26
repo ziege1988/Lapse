@@ -6,7 +6,7 @@ import { mul, I3, fitModel } from './geometry.js';
 import { newManual, statsOf } from './project.js';
 import { Renderer } from './renderer.js';
 
-const ANALYSIS = { fast: { res: 1024, feats: 1500 }, precise: { res: 1600, feats: 2500 }, refine: { res: 2048, feats: 3500 } };
+const ANALYSIS = { fast: { res: 1024, feats: 3000 }, precise: { res: 1600, feats: 4000 }, refine: { res: 2048, feats: 5000 } };
 export const PREVIEW_RES = 960;
 
 export class Aligner {
@@ -71,7 +71,7 @@ export async function importFiles(files, project, aligner, { onFrame, onProgress
       freeCanvas(prev);
       const frame = {
         id: nextId(), file, name: file.name, date, modified: file.lastModified, order: project.frames.length,
-        w, h, thumbUrl: URL.createObjectURL(thumbBlob), previewBlob,
+        w, h, thumbUrl: URL.createObjectURL(thumbBlob), thumbBlob, previewBlob,
         featRes: 0, align: null, manual: newManual(), excluded: false, analyzing: true,
       };
       await inflight; // höchstens eine Analyse parallel -> begrenzter Speicher
@@ -231,7 +231,14 @@ export async function anchorUniqueness(project, aligner) {
 /** Bereich der Fixpunkte im Referenzbild: konvexe Hülle, um 60 % um den Schwerpunkt vergrößert. */
 export function anchorRegion(project) {
   const P = project.anchors.map(a => [a.x, a.y]);
-  if (P.length < 3) return null;
+  if (P.length < 2) return null;
+  if (P.length === 2) {
+    // Zwei Punkte: Rechteck um die Verbindungslinie (beidseitig verbreitert)
+    const [[x1, y1], [x2, y2]] = P, dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1;
+    const ux = dx / L, uy = dy / L, nx = -uy, ny = ux, e = 0.35 * L, wdt = 0.45 * L;
+    return [[x1 - ux * e + nx * wdt, y1 - uy * e + ny * wdt], [x2 + ux * e + nx * wdt, y2 + uy * e + ny * wdt],
+      [x2 + ux * e - nx * wdt, y2 + uy * e - ny * wdt], [x1 - ux * e - nx * wdt, y1 - uy * e - ny * wdt]];
+  }
   const pts = P.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
   const lo = [], hi = [];
@@ -311,6 +318,49 @@ export async function snapFrameAnchors(project, aligner, f) {
   // Feinausrichtung per Flächenvergleich im Bereich der Fixpunkte (Drehung kommt aus den Punkten)
   if (f.align?.ok && f.align.method === 'anker') await refineAnchored(project, aligner, f);
   return true;
+}
+
+/**
+ * Hauptweg: Punkte einmal im Bezugsfoto setzen -> Lapse findet sie in allen Fotos
+ * (beliebige Drehung/Zoom), richtet danach aus und verfeinert im Bereich der Punkte.
+ * Rückgabe: { ok: [Fotos], failed: [Fotos] } oder false bei Abbruch.
+ */
+export async function alignByAnchors(project, aligner, { onProgress, isCancelled } = {}) {
+  const ref = project.ref;
+  await setReference(project, aligner);
+  const anchors = project.anchors.map(a => ({ x: a.x, y: a.y }));
+  const list = project.frames.filter(f => f !== ref);
+  ref.align = { ok: true, H: I3(), inliers: Infinity, total: 0, rms: 0, ncc: 1, method: 'ref', via: null };
+  ref.anchorPts = null; ref.autoAlign = null;
+  const ok = [], failed = [];
+  let done = 0;
+  for (const f of list) {
+    if (isCancelled?.()) return false;
+    f.autoAlign = null; f.anchorPts = null; f.align = null;
+    f.manual = { ...f.manual, dx: 0, dy: 0, rot: 0, scale: 1 };
+    const g = await grayFromPreview(f);
+    const r = await aligner.call({ type: 'locate', id: f.id, refId: ref.id, gray: g.gray.buffer, w: g.w, h: g.h, anchors }, [g.gray.buffer]);
+    if (r.ok) {
+      f.anchorPts = r.points.map(p => ({ x: p.x, y: p.y, score: p.score, manual: false }));
+      project.applyAnchors(f);
+      if (f.align?.ok) await refineAnchored(project, aligner, f);
+    }
+    const sure = (f.anchorPts || []).filter(p => !p.outlier && p.score >= 0.55).length;
+    if (f.align?.ok && f.align.used >= 2 && sure >= 2) {
+      ok.push(f);
+      if (f.autoExcluded) { f.excluded = false; f.autoExcluded = false; }
+    } else {
+      // nicht sicher gefunden: vorerst aus dem Video nehmen, in „Fotos“ korrigierbar
+      if (!f.align) f.align = { ok: false, H: I3(), inliers: 0, ncc: null, method: 'anker', used: 0, anchorScore: 0 };
+      if (!f.anchorPts && r.predH) f.anchorPts = null;
+      if (!f.excluded) { f.excluded = true; f.autoExcluded = true; }
+      failed.push(f);
+    }
+    onProgress?.(++done, list.length);
+  }
+  project.anchorsActive = true;
+  project.aligned = true;
+  return { ok, failed };
 }
 
 /** Sucht die Ankerpunkte in allen Fotos und richtet danach aus. */

@@ -336,6 +336,19 @@ export class Project {
         const set = cand.filter(k => resid(Hs, k) < TOL || (pts[k].manual && resid(Hs, k) < TOL * 1.5));
         if (set.length >= 2) found.set(set.join(','), set);
       }
+      // Ab vier Punkten auch schräg aufgenommene Fotos zulassen (affin aus je drei Punkten)
+      if (cand.length >= 4) {
+        for (let i = 0; i < cand.length; i++) for (let j = i + 1; j < cand.length; j++) for (let l = j + 1; l < cand.length; l++) {
+          const tri = [cand[i], cand[j], cand[l]];
+          const [a1, a2, a3] = tri.map(k => [dst[2 * k], dst[2 * k + 1]]);
+          const area = Math.abs((a2[0] - a1[0]) * (a3[1] - a1[1]) - (a3[0] - a1[0]) * (a2[1] - a1[1]));
+          if (area < 0.002) continue; // fast auf einer Linie -> unzuverlässig
+          const Ha = fitModel('affine', src, dst, tri);
+          if (!Ha) continue;
+          const set = cand.filter(k => resid(Ha, k) < TOL || (pts[k].manual && resid(Ha, k) < TOL * 1.5));
+          if (set.length >= 4) found.set(set.join(','), set);
+        }
+      }
       const all = [...found.values()];
       if (all.length) {
         const rank = set => [set.length, set.filter(k => pts[k].manual).length];

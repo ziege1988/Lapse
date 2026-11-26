@@ -92,6 +92,15 @@ async function makePlatePhotos(page, N) {
   }, N);
 }
 
+async function autoAlign(page) {
+  await page.click('#primary'); // -> Punkte
+  await page.waitForFunction(() => window.__lapse.ui.view === 'points');
+  await page.$eval('#pts-auto', b => b.click());
+  await page.waitForFunction(() => !document.querySelector('#view-edit').hidden && document.querySelector('#progress').hidden, null, { timeout: 300000 });
+}
+
+async function closeDone(page) { await page.$eval('#done-close', b => b.click()); }
+
 async function plateScenario(browser, base, check) {
   const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
   const errors = [];
@@ -100,8 +109,7 @@ async function plateScenario(browser, base, check) {
   const photos = await makePlatePhotos(page, 12);
   await page.setInputFiles('#file', photos.map((b, i) => ({ name: `IMG_${9363 + i}.jpeg`, mimeType: 'image/jpeg', buffer: Buffer.from(b, 'base64') })));
   await page.waitForFunction(() => document.querySelector('#progress').hidden, null, { timeout: 120000 });
-  await page.click('#primary');
-  await page.waitForFunction(() => !document.querySelector('#view-edit').hidden && document.querySelector('#progress').hidden, null, { timeout: 300000 });
+  await autoAlign(page);
   const res = await page.evaluate(() => window.__lapse.project.frames.map(f => ({ ok: f.align.ok, ex: f.excluded, ncc: f.align.ncc })));
   const good = res.filter(r => r.ok && !r.ex).length;
   check(good === res.length, `Teller aus der Hand: ${good} von ${res.length} Fotos ausgerichtet (min. Übereinstimmung ${Math.round(Math.min(...res.map(r => r.ncc ?? 1)) * 100)} %)`);
@@ -124,8 +132,7 @@ async function plateScenario(browser, base, check) {
     await page.setInputFiles('#file', photos.map((b, i) => ({ name: `IMG_${1000 + i}.jpg`, mimeType: 'image/jpeg', buffer: Buffer.from(b, 'base64') })));
     await page.waitForFunction(() => document.querySelector('#progress').hidden, null, { timeout: 120000 });
     check(await page.evaluate(() => window.__lapse.project.frames.length) === 16, '16 Fotos importiert');
-    await page.click('#primary');
-    await page.waitForFunction(() => !document.querySelector('#view-edit').hidden && document.querySelector('#progress').hidden, null, { timeout: 180000 });
+    await autoAlign(page);
     const frames = await page.evaluate(() => window.__lapse.project.frames.map(f => ({ q: f.quality, ok: f.align.ok, rms: f.align.rms, gain: f.stats ? f.color.gain[1] : 1 })));
     check(frames.every(f => f.ok && f.q === 'good'), 'alle Fotos gut ausgerichtet');
     check(Math.max(...frames.map(f => f.rms)) < 1, `Restabweichung < 1 px (max ${Math.max(...frames.map(f => f.rms)).toFixed(2)})`);
@@ -138,6 +145,7 @@ async function plateScenario(browser, base, check) {
       await page.waitForTimeout(400);
       await page.click('#primary');
       await page.waitForFunction(() => document.querySelector('#progress').hidden, null, { timeout: 300000 });
+      await closeDone(page);
       const r = await page.evaluate(() => { const r = window.__lapse.ui.result; return r && { name: r.name, size: r.blob.size }; });
       check(r && r.size > 10000 && r.name.endsWith(fmt === 'mp4-avc' ? '.mp4' : fmt === 'webm-vp9' ? '.webm' : '.' + fmt), `Export ${fmt}: ${r ? `${r.name}, ${(r.size / 1e6).toFixed(2)} MB` : 'fehlgeschlagen'}`);
       await page.evaluate(() => { window.__lapse.ui.result = null; });
@@ -146,6 +154,7 @@ async function plateScenario(browser, base, check) {
     const exportMp4 = async () => {
       await page.click('#primary');
       await page.waitForFunction(() => document.querySelector('#progress').hidden, null, { timeout: 300000 });
+      await closeDone(page);
       return page.evaluate(() => window.__lapse.ui.result.blob.size);
     };
     if (await page.$eval('#formats input[value="mp4-avc"]', i => !i.disabled)) {

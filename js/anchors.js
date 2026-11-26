@@ -146,3 +146,95 @@ export function anchorUniqueness(ref, a) {
   }
   return { value: Math.max(0, Math.min(1, (1 - second) / 0.25)), reason: second > 0.9 ? 'kante' : '' };
 }
+
+/**
+ * Findet die Ankerpunkte in einem Foto ohne Vorwissen über Drehung/Zoom.
+ * 1. Merkmale (dreh- und helligkeitsunabhängig) nur aus der Umgebung der Punkte
+ *    im Referenzbild werden im ganzen Foto gesucht.
+ * 2. Jede Lage, die sich aus zwei Zuordnungen ergibt, wird am Bild selbst geprüft:
+ *    sieht es an den vorhergesagten Stellen (passend gedreht) aus wie an den Punkten?
+ * 3. Die beste Lage dient als Vorhersage für die genaue Punktsuche.
+ * refFeat/imgFeat: { n, xy (kanonisch), desc }; Rückgabe { predH, score } oder null.
+ */
+export function locateAnchors(ref, img, refFeat, imgFeat, anchors, { match, fitModel }) {
+  const R = 0.08;
+  const keep = [];
+  for (let i = 0; i < refFeat.n; i++) {
+    const x = refFeat.xy[2 * i], y = refFeat.xy[2 * i + 1];
+    if (anchors.some(a => Math.hypot(x - a.x, y - a.y) < R)) keep.push(i);
+  }
+  if (keep.length < 4) return null;
+  const W = refFeat.desc.length / refFeat.n;
+  const sub = { n: keep.length, xy: new Float32Array(keep.length * 2), desc: new Uint32Array(keep.length * W) };
+  keep.forEach((i, k) => { sub.xy[2 * k] = refFeat.xy[2 * i]; sub.xy[2 * k + 1] = refFeat.xy[2 * i + 1]; sub.desc.set(refFeat.desc.subarray(i * W, i * W + W), k * W); });
+  const m = match(sub, imgFeat, { ratio: 0.9, maxDist: 100 });
+  if (m.length < 2) return null;
+  const src = [], dst = [];
+  for (const [i, j] of m) { src.push(imgFeat.xy[2 * j], imgFeat.xy[2 * j + 1]); dst.push(sub.xy[2 * i], sub.xy[2 * i + 1]); }
+  // Vorlagen der Punkte auf der groben Ebene
+  const lc = Math.max(0, ref.pyr.findIndex(L => Math.max(L.w, L.h) <= 220));
+  const Rc = ref.pyr[lc], Ic = img.pyr[Math.min(lc, img.pyr.length - 1)], sc = Rc.s;
+  const rT = Math.max(6, Math.round(0.05 * Math.max(Rc.w, Rc.h)));
+  const temps = anchors.map(a => template(Rc, a.x * ref.m / sc, a.y * ref.m / sc, rT, 1)).filter(Boolean);
+  const verify = H => {
+    // H: Bild -> Referenz (kanonisch); Lage der Punkte im Bild über H^-1
+    const Hi = inv(H);
+    if (!Hi) return -1;
+    const ang = Math.atan2(Hi[3], Hi[0]), s = Math.hypot(Hi[0], Hi[3]) * img.m / ref.m;
+    const A = [Math.cos(ang) * s, -Math.sin(ang) * s, Math.sin(ang) * s, Math.cos(ang) * s];
+    let sum = 0, n = 0;
+    anchors.forEach((a, k) => {
+      const T = temps[k];
+      if (!T || T.flat) return;
+      const [x, y] = apply(Hi, a.x, a.y);
+      const cx = x * img.m / sc, cy = y * img.m / sc;
+      let best = -1;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) best = Math.max(best, nccAt(Ic, T, cx + dx, cy + dy, A));
+      sum += Math.max(0, best); n++;
+    });
+    return n ? sum / n : -1;
+  };
+  // Hypothesen aus Paaren von Zuordnungen (Ähnlichkeit: Drehung, Zoom, Lage)
+  const n = m.length, pairs = [];
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) pairs.push([i, j]);
+  for (let i = pairs.length - 1; i > 0; i--) { const r = (i * 2654435761) % (i + 1); [pairs[i], pairs[r]] = [pairs[r], pairs[i]]; }
+  let best = null;
+  for (const [i, j] of pairs.slice(0, 1500)) {
+    const d = Math.hypot(dst[2 * i] - dst[2 * j], dst[2 * i + 1] - dst[2 * j + 1]);
+    if (d < 0.02) continue;
+    const H = fitModel('similarity', src, dst, [i, j]);
+    if (!H) continue;
+    const zoom = Math.hypot(H[0], H[3]);
+    if (zoom < 0.5 || zoom > 2) continue;
+    // Stützende Zuordnungen (grob) als Vorauswahl
+    let sup = 0;
+    for (let k = 0; k < n; k++) { const [x, y] = apply(H, src[2 * k], src[2 * k + 1]); if (Math.hypot(x - dst[2 * k], y - dst[2 * k + 1]) < 0.006) sup++; }
+    if (best && sup < best.sup * 0.5 && sup < 3) continue;
+    const v = verify(H);
+    const total = v + 0.01 * Math.min(sup, 20);
+    if (!best || total > best.total) best = { H, v, sup, total };
+  }
+  if (!best) return null;
+  // Schräg aufgenommene Fotos: aus allen zur besten Lage passenden Zuordnungen eine
+  // affine Abbildung schätzen (erfasst Neigung/Perspektive näherungsweise)
+  let H = best.H, v = best.v;
+  const near = [];
+  for (let k = 0; k < n; k++) { const [x, y] = apply(best.H, src[2 * k], src[2 * k + 1]); if (Math.hypot(x - dst[2 * k], y - dst[2 * k + 1]) < 0.04) near.push(k); }
+  if (near.length >= 6) {
+    let bestA = null;
+    for (let t = 0; t < 300; t++) {
+      const tri = [near[(t * 7919) % near.length], near[(t * 104729 + 1) % near.length], near[(t * 1299709 + 2) % near.length]];
+      if (new Set(tri).size < 3) continue;
+      const Ha = fitModel('affine', src, dst, tri);
+      if (!Ha) continue;
+      const inl = near.filter(k => { const [x, y] = apply(Ha, src[2 * k], src[2 * k + 1]); return Math.hypot(x - dst[2 * k], y - dst[2 * k + 1]) < 0.008; });
+      if (!bestA || inl.length > bestA.inl.length) bestA = { Ha, inl };
+    }
+    if (bestA && bestA.inl.length >= 6) {
+      const Hf = fitModel('affine', src, dst, bestA.inl);
+      const vf = Hf ? verify(Hf) : -1;
+      if (vf >= v - 0.02) { H = Hf; v = vf; }
+    }
+  }
+  return { predH: H, score: v, support: best.sup };
+}
