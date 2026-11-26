@@ -258,8 +258,9 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border-radius: 
 #view-edit.anchor-mode .transport, #view-edit.anchor-mode .tabs, #view-edit.anchor-mode .notice,
 #view-edit.anchor-mode .panel:not(#panel-anchors), #view-edit.anchor-mode .strip-actions,
 #view-edit.anchor-mode .guide, #view-edit.anchor-mode .issues { display: none !important; }
-body.anchor-mode .actionbar { display: none; }
-body.anchor-mode { padding-bottom: calc(16px + var(--safe-b)); }
+body.anchor-mode:not(.review-mode) .actionbar { display: none; }
+body.review-mode .anc-nav, body.review-mode #panel-anchors .btn-grid { display: none; }
+body.anchor-mode:not(.review-mode) { padding-bottom: calc(16px + var(--safe-b)); }
 .anchor-layer { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
 .anchor-pt {
   position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
@@ -337,6 +338,8 @@ details.card.more { border-top: 1px solid var(--line); padding: 12px 16px; }
 .stage.fs canvas { width: auto; height: auto; }
 .stage.fs .fs-hint { bottom: calc(16px + var(--safe-b)); right: 50%; transform: translateX(50%); }
 body.fs-open { overflow: hidden; }
+body.anchor-mode .fs-hint { display: none; }
+body.anchor-mode .stage { cursor: crosshair; }
 body.fs-open .stage-wrap { z-index: 100; }
 body.fs-open .top, body.fs-open .actionbar, body.fs-open .toast { display: none; }
 #pts-strip .sf.sel { border-color: var(--accent); }

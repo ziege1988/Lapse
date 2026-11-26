@@ -52,7 +52,6 @@
         </div>
         <h1>Zeitraffer aus deinen Fotos</h1>
         <p>Lapse richtet deine Fotos automatisch aus, schneidet sie passend zu, gleicht Belichtung und Farbe an und erstellt daraus ein Video. Alles passiert auf deinem iPhone – nichts wird hochgeladen.</p>
-        <label class="btn primary big" for="file">Fotos auswählen</label>
         <p class="hint">Tipp: In der Auswahl mehrere Bilder antippen oder mit dem Finger über Bilder wischen. Ab 2 Fotos – sinnvoll sind 30 bis 500.</p>
         <p class="version" id="version"></p>
       </div>
@@ -161,7 +160,7 @@
           </div>
           <div class="btn-row anc-actions">
             <button class="btn small ghost" id="anc-remove">Foto entfernen</button>
-            <button class="btn small primary" id="anc-done">Fertig</button>
+            <button class="btn small" id="anc-done">Fertig</button>
           </div>
         </div>
         <div class="anc-intro">
@@ -383,8 +382,9 @@
       <h2 id="review-title">Fast fertig</h2>
       <p class="small" id="review-text"></p>
       <ul class="review-list" id="review-list"></ul>
-      <button class="btn primary wide" id="review-remove-all">Alle entfernen und weiter</button>
-      <button class="btn wide" id="review-continue">Weiter zur Vorschau</button>
+      <button class="btn primary wide" id="review-start">Nacheinander ansehen</button>
+      <button class="btn wide" id="review-remove-all">Alle entfernen und weiter</button>
+      <button class="btn ghost wide" id="review-continue">Später</button>
     </div>
   </div>
   <div class="modal" id="done" hidden role="dialog" aria-modal="true" aria-labelledby="done-title">

@@ -127,6 +127,11 @@ function updateSteps() {
 function updatePrimary() {
   const b = $('#primary'), n = project.frames.length;
   b.disabled = false;
+  if (ui.review && anc.on) {
+    const r = ui.review, last = reviewRemaining() <= 1;
+    b.textContent = last ? 'Passt – fertig' : `Passt – nächstes Foto (${r.pos} von ${r.total})`;
+    return;
+  }
   if (ui.view === 'photos') {
     if (!n) b.textContent = 'Fotos auswählen';
     else if (n < 2) { b.textContent = 'Mindestens 2 Fotos nötig'; b.disabled = true; }
@@ -142,6 +147,7 @@ function updatePrimary() {
 $$('.step').forEach(b => b.onclick = () => !b.disabled && showView(b.dataset.view));
 
 $('#primary').onclick = () => {
+  if (ui.review && anc.on) { reviewAccept(); return; }
   if (ui.view === 'photos') {
     if (!project.frames.length) $('#file').click();
     else if (project.aligned) showView('edit');
@@ -312,7 +318,7 @@ async function runAnchorAlign() {
 
 // ---- Problemfotos: prüfen, korrigieren oder entfernen ----
 function problemFrames() {
-  return project.frames.filter(f => f.id !== project.refId && f.featRes > 0 &&
+  return project.frames.filter(f => f.id !== project.refId && f.featRes > 0 && !f.manualChecked &&
     ((f.excluded && f.autoExcluded) || (!f.excluded && (f.quality === 'warn' || f.quality === 'bad'))));
 }
 
@@ -329,11 +335,12 @@ function openReview() {
   if (!list.length) { $('#review').hidden = true; updateIssues(); return false; }
   const n = list.length;
   $('#review-title').textContent = `Fast fertig – ${n} Foto${n === 1 ? '' : 's'} prüfen`;
-  $('#review-text').textContent = `Bei ${n === 1 ? 'diesem Foto' : 'diesen Fotos'} hat Lapse die Punkte nicht sicher gefunden. Du kannst die Punkte von Hand setzen („Korrigieren“) oder das Foto entfernen – das Video entsteht dann ohne dieses Foto.`;
+  $('#review-text').textContent = `Bei ${n === 1 ? 'diesem Foto' : 'diesen Fotos'} ist Lapse nicht ganz sicher. Oft passt es trotzdem: „Nacheinander ansehen“ zeigt jedes Foto – mit einem Tipp bestätigen, korrigieren oder entfernen.`;
+  $('#review-start').textContent = n === 1 ? 'Foto ansehen' : `${n} Fotos nacheinander ansehen`;
   $('#review-list').innerHTML = list.map(f => `<li>
       <img src="${f.thumbUrl}" alt="">
       <div class="rn">${f.name}<small>${f.excluded ? 'Punkte nicht gefunden – derzeit nicht im Video' : 'unsicher ausgerichtet – bitte ansehen'}</small></div>
-      <div class="rb"><button class="btn" data-fix="${f.id}">Korrigieren</button><button class="btn ghost" data-rm="${f.id}">Entfernen</button></div>
+      <div class="rb"><button class="btn" data-fix="${f.id}">Ansehen</button><button class="btn ghost" data-rm="${f.id}">Entfernen</button></div>
     </li>`).join('');
   $('#review-remove-all').textContent = n === 1 ? 'Foto entfernen und weiter' : `Alle ${n} entfernen und weiter`;
   $('#review').hidden = false;
@@ -352,12 +359,49 @@ $('#review-list').onclick = e => {
   if (rm) {
     removeProblem([rm]);
     if (!openReview()) toast('Alles bereit – Vorschau antippen für Vollbild.');
-  } else if (fix) {
-    $('#review').hidden = true;
-    if (ui.view !== 'edit') showView('edit');
-    openAnchors(project.byId(fix));
-  }
+  } else if (fix) startReview(fix);
 };
+$('#review-start').onclick = () => startReview();
+
+// ---- Geführte Prüfung: ein Foto nach dem anderen, klares Ende ----
+function reviewRemaining() {
+  const r = ui.review;
+  return r ? r.ids.slice(r.i).filter(id => project.byId(id)).length : 0;
+}
+function startReview(startId) {
+  const ids = problemFrames().map(f => f.id);
+  if (!ids.length) return;
+  $('#review').hidden = true;
+  const i = Math.max(0, ids.indexOf(startId));
+  ui.review = { ids, i, pos: 1, total: ids.length };
+  document.body.classList.add('review-mode');
+  if (ui.view !== 'edit') showView('edit');
+  openAnchors(project.byId(ids[i]));
+  updatePrimary();
+}
+function reviewGoto(step) {
+  const r = ui.review;
+  r.i += step;
+  while (r.i < r.ids.length && !project.byId(r.ids[r.i])) r.i++;
+  if (r.i >= r.ids.length) { endReview(true); return; }
+  r.pos = Math.min(r.total, r.pos + 1);
+  showAnchorFrame(project.byId(r.ids[r.i]));
+  updatePrimary();
+}
+/** „Passt“: Foto als geprüft markieren und zum nächsten */
+function reviewAccept() {
+  const f = anc.frame;
+  if (f) { f.manualChecked = true; if (f.excluded && f.autoExcluded && f.align?.ok) { f.excluded = false; f.autoExcluded = false; } }
+  scheduleSave();
+  reviewGoto(1);
+}
+function endReview(done) {
+  ui.review = null;
+  document.body.classList.remove('review-mode');
+  closeAnchors();
+  updatePrimary();
+  if (done) toast('Alle Fotos geprüft ✓ – Vorschau antippen für Vollbild.', 4000);
+}
 $('#review-remove-all').onclick = () => {
   const ids = problemFrames().map(f => f.id);
   $('#review').hidden = true;
@@ -370,11 +414,10 @@ $('#review-continue').onclick = () => { $('#review').hidden = true; updateIssues
 $('#anc-remove').onclick = () => {
   const f = anc.frame;
   if (!f || f.id === project.refId) return;
-  const next = problemFrames().find(g => g !== f);
   removeProblem([f.id]);
   toast(`„${f.name}“ entfernt.`);
-  if (next && project.frames.includes(next)) showAnchorFrame(next);
-  else closeAnchors();
+  if (ui.review) { ui.review.total = Math.max(1, ui.review.total); reviewGoto(1); return; }
+  closeAnchors();
 };
 
 // ---- Vollbild-Vorschau (Antippen der Vorschau) ----
@@ -986,8 +1029,9 @@ function renderAnchors() {
       `<span class="mini-pt${anc.active === k ? ' active' : ''}" style="left:${a.x * rm / ref.w * 100}%;top:${a.y * rm / ref.h * 100}%">${k + 1}</span>`).join('');
   }
   const list = ancFrames(), idx = list.indexOf(f);
-  $('#anc-title').textContent = isRef ? 'Ankerpunkte im Referenzbild' : 'Ankerpunkte prüfen';
-  $('#anc-pos').textContent = `${isRef ? '★ Referenz · ' : ''}Foto ${idx + 1} von ${list.length} · ${f.name}`;
+  $('#anc-title').textContent = ui.review ? `Foto ${ui.review.pos} von ${ui.review.total} prüfen` : isRef ? 'Ankerpunkte im Referenzbild' : 'Ankerpunkte prüfen';
+  $('#anc-pos').textContent = ui.review ? f.name : `${isRef ? '★ Referenz · ' : ''}Foto ${idx + 1} von ${list.length} · ${f.name}`;
+  $('#anc-done').textContent = ui.review ? 'Prüfen beenden' : 'Fertig';
   const tracked = project.frames.some(g => g.anchorPts);
   let help;
   if (isRef && !pts.length) help = 'Tippe im Bild auf 3–5 Stellen, die in ALLEN Fotos vorhanden sind und sich nicht bewegen – z. B. die ersten Haferflocken (nicht später hinzugefügte), Flecken oder Ecken. Möglichst weit auseinander. Nicht auf das, was sich bewegt oder wächst.';
@@ -998,6 +1042,7 @@ function renderAnchors() {
       (nMan < 2 ? 'Nach zwei getippten Punkten erkennt Lapse Drehung und Zoom, sucht die übrigen Punkte selbst und rastet deine Tipps exakt ein.' : 'Übrige Punkte prüfen – falsch liegende antippen oder ziehen.');
   }
   else help = 'Alle Punkte in diesem Foto sind von Hand gesetzt ✓ – weiter mit „Weiter ›“. Punkte lassen sich weiterhin ziehen.';
+  if (ui.review && !isRef) help = 'Liegen die Ringe auf denselben Stellen wie im kleinen Bezugsbild? Dann unten „Passt“. Sonst einen Ring antippen und an die richtige Stelle ziehen – oder „Foto entfernen“.';
   $('#anc-help').textContent = help;
   $('#anc-list').innerHTML = pts.map((p, k) => {
     let t;
@@ -1181,6 +1226,7 @@ $('#f-anchors').onclick = () => {
   if (f && f.id !== project.refId && !project.anchors.length) toast('Erst im Referenzbild Punkte setzen, dann „In allen Fotos suchen“.', 4500);
 };
 $('#anc-done').onclick = () => {
+  if (ui.review) { endReview(false); return; }
   closeAnchors();
   // gibt es noch unsichere Fotos, das Prüf-Fenster nach der Neuberechnung erneut anbieten
   setTimeout(() => { if (problemFrames().length) updateIssues(); }, 800);
