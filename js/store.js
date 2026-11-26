@@ -42,7 +42,7 @@ export class ProjectStore {
     }
     meta.put({
       settings: project.settings, refId: project.refId, anchors: project.anchors, anchorsActive: project.anchorsActive,
-      aligned: project.aligned, order: project.frames.map(f => f.id), savedAt: Date.now(),
+      aligned: project.aligned, order: project.frames.map(f => f.id), savedAt: Date.now(), customCrop: project.customCrop,
     }, 'project');
     await done(tx);
   }

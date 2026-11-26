@@ -123,6 +123,7 @@
           <div class="recalc" id="recalc" hidden><i></i>Wird neu berechnet …</div>
           <div class="fs-hint" id="fs-hint">⤢ Antippen für Vollbild</div>
           <div class="anchor-layer" id="anchor-layer" hidden></div>
+          <div class="crop-layer" id="crop-layer" hidden></div>
           <canvas class="loupe" id="loupe" width="240" height="240" hidden></canvas>
         </div>
       </div>
@@ -133,6 +134,10 @@
         </button>
         <input type="range" id="scrub" min="0" max="1000" value="0" step="1" aria-label="Zeitposition">
         <span class="time" id="time">0:00 / 0:00</span>
+      </div>
+      <div class="crop-row">
+        <button class="btn small" id="crop-btn">✂ Bildausschnitt anpassen</button>
+        <span class="muted small" id="crop-state"></span>
       </div>
 
       <div class="strip-head">
@@ -201,6 +206,27 @@
           <button class="btn ghost" id="rv-remove">Foto entfernen</button>
         </div>
         <button class="btn ghost small rv-quit" id="rv-quit">Prüfen abbrechen</button>
+      </div>
+
+      <div class="panel" id="panel-crop" hidden>
+        <div class="rv-head">
+          <div>
+            <div class="rv-title">Bildausschnitt wählen</div>
+            <div class="muted small">Rahmen mit dem Finger verschieben oder an den Ecken ziehen.</div>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">Format</span>
+          <div class="seg wrap" id="crop-aspect">
+            <button data-v="frei">Frei</button><button data-v="16:9">16:9</button><button data-v="9:16">9:16</button>
+            <button data-v="1:1">1:1</button><button data-v="4:3">4:3</button><button data-v="3:4">3:4</button>
+          </div>
+        </div>
+        <p class="help">Nur im hellen Bereich haben alle Fotos Bildinhalt – der Rahmen bleibt deshalb darin, damit keine Ränder entstehen.</p>
+        <div class="btn-row">
+          <button class="btn" id="crop-auto">Automatisch (größtmöglich)</button>
+          <button class="btn ghost" id="crop-cancel">Abbrechen</button>
+        </div>
       </div>
 
       <div class="tabs" role="tablist">
@@ -371,6 +397,10 @@
         </div>
         <div class="qinfo" id="q-info"></div>
         <p class="help" id="q-help"></p>
+      </div>
+      <div class="card" id="crop-card">
+        <h2>Bildausschnitt</h2>
+        <div class="crop-card-row"><span class="small" id="crop-summary"></span><button class="btn small" id="crop-btn2">✂ Ändern</button></div>
       </div>
       <div class="card summary" id="summary"></div>
       <div class="card result" id="result" hidden>

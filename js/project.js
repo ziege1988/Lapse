@@ -39,6 +39,7 @@ export class Project {
     this.aligned = false;
     this.anchors = [];          // Ankerpunkte im Referenzbild (kanonisch): [{x, y, uniq}]
     this.anchorsActive = false; // Ausrichtung kommt aus den Ankerpunkten
+    this.customCrop = null;     // eigener Bildausschnitt {x, y, w, h, key} im Bezugsfoto (kanonisch)
   }
 
   get included() { return this.frames.filter(f => !f.excluded); }
@@ -94,6 +95,16 @@ export class Project {
       rect = { x: (rw - h * aspect) / 2, y: (rh - h) / 2, w: h * aspect, h };
       this.cropFailed = true;
     } else this.cropFailed = false;
+    // Eigener Ausschnitt: übernehmen, falls nötig in den gültigen Bereich einpassen
+    if (this.customCrop) {
+      const quads = this.validQuads();
+      let r = { x: this.customCrop.x, y: this.customCrop.y, w: this.customCrop.w, h: this.customCrop.h };
+      if (!Project.rectInside(quads, r)) r = Project.fitRect(quads, r);
+      if (r && r.w > 0.01 && r.h > 0.01) {
+        this.crop = { ...r, full: rect, custom: true };
+        return this.crop;
+      }
+    }
     const z = Math.max(1, this.settings.zoom);
     const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2, w = rect.w / z, h = rect.h / z;
     this.crop = { x: cx - w / 2, y: cy - h / 2, w, h, full: rect };
@@ -129,6 +140,52 @@ export class Project {
       if (factor >= minFactor) out.push({ frame: inc[i], factor });
     }
     return out.sort((a, b) => b.factor - a.factor);
+  }
+
+  // ---------- Eigener Ausschnitt ----------
+
+  /** Umrisse aller Fotos im Bezugsfoto – innerhalb aller liegt der randfreie Bereich. */
+  validQuads() {
+    return this.included.map(f => { const [w, h] = Project.dims(f); return quadOf(this.transform(f), w, h); }).filter(isConvexQuad);
+  }
+
+  static pointInQuad(q, x, y) {
+    let sign = 0;
+    for (let i = 0; i < q.length; i++) {
+      const [x1, y1] = q[i], [x2, y2] = q[(i + 1) % q.length];
+      const c = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1);
+      if (Math.abs(c) < 1e-12) continue;
+      const s = Math.sign(c);
+      if (!sign) sign = s; else if (s !== sign) return false;
+    }
+    return true;
+  }
+
+  /** Liegt das Rechteck vollständig im randfreien Bereich? */
+  static rectInside(quads, r) {
+    const pts = [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
+    return quads.every(q => pts.every(([x, y]) => Project.pointInQuad(q, x, y)));
+  }
+
+  /** Rechteck um seine Mitte so weit verkleinern, bis es passt. */
+  static fitRect(quads, r) {
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 30; i++) {
+      const m = (lo + hi) / 2, t = { x: cx - r.w * m / 2, y: cy - r.h * m / 2, w: r.w * m, h: r.h * m };
+      if (Project.rectInside(quads, t)) lo = m; else hi = m;
+    }
+    return lo > 0.02 ? { x: cx - r.w * lo / 2, y: cy - r.h * lo / 2, w: r.w * lo, h: r.h * lo } : null;
+  }
+
+  /** Größtes Rechteck mit Seitenverhältnis aspect um den Mittelpunkt (cx, cy). */
+  static maxRectAt(quads, cx, cy, aspect) {
+    let lo = 0, hi = 2;
+    for (let i = 0; i < 30; i++) {
+      const h = (lo + hi) / 2, w = h * aspect;
+      if (Project.rectInside(quads, { x: cx - w / 2, y: cy - h / 2, w, h })) lo = h; else hi = h;
+    }
+    return lo > 0.01 ? { x: cx - lo * aspect / 2, y: cy - lo / 2, w: lo * aspect, h: lo } : null;
   }
 
   /** Matrix: Ausgabe (0..1, y nach unten) -> Texturkoordinaten des Bildes. */

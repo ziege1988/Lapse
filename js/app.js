@@ -109,7 +109,8 @@ function showView(v) {
   $$('.step').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   if (v !== 'edit') player?.pause();
   if (v === 'edit') { layoutStage(); renderStrip(); updateFramePanel(); player.invalidate(); }
-  if (v === 'export') refreshExport();
+  if (v === 'export') { refreshExport(); updateCropState(); }
+  if (v === 'edit') updateCropState();
   if (v === 'points') renderPoints();
   updatePrimary();
   window.scrollTo({ top: 0 });
@@ -127,6 +128,7 @@ function updateSteps() {
 function updatePrimary() {
   const b = $('#primary'), n = project.frames.length;
   b.disabled = false;
+  if (cropUI.on) { b.textContent = 'Ausschnitt übernehmen'; return; }
   if (ui.review) {
     const r = ui.review, last = reviewRemaining() <= 1;
     if (r.mode === 'tap') {
@@ -150,6 +152,7 @@ function updatePrimary() {
 $$('.step').forEach(b => b.onclick = () => !b.disabled && showView(b.dataset.view));
 
 $('#primary').onclick = () => {
+  if (cropUI.on) { closeCrop(true); return; }
   if (ui.review) { if (ui.review.mode === 'ask') reviewAccept(); return; }
   if (ui.view === 'photos') {
     if (!project.frames.length) $('#file').click();
@@ -514,6 +517,175 @@ $('#anc-remove').onclick = () => {
   closeAnchors();
 };
 
+// ---- Eigener Bildausschnitt ----
+// Rahmen im Bezugsfoto verschieben/aufziehen; bleibt im Bereich, den alle Fotos abdecken.
+const cropUI = { on: false, rect: null, key: 'frei', drag: null, quads: null };
+const CROP_ASPECTS = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4 };
+
+function openCrop() {
+  if (!project.crop || !player) return;
+  exitFullscreen();
+  if (ui.view !== 'edit') showView('edit');
+  const c = project.crop;
+  cropUI.on = true;
+  cropUI.rect = { x: c.x, y: c.y, w: c.w, h: c.h };
+  cropUI.key = project.customCrop?.key || 'frei';
+  cropUI.quads = project.validQuads();
+  cropUI.area = null;
+  anc.on = true; anc.frame = project.ref;   // ganzes Bezugsfoto anzeigen
+  document.body.classList.add('anchor-mode', 'crop-mode');
+  $('#view-edit').classList.add('anchor-mode');
+  $('#panel-crop').hidden = false;
+  $('#crop-layer').hidden = false;
+  player.showRaw(project.ref);
+  layoutStage();
+  renderCrop();
+  updatePrimary();
+  window.scrollTo({ top: 0 });
+}
+
+function closeCrop(apply) {
+  if (apply && cropUI.rect) {
+    project.customCrop = { ...cropUI.rect, key: cropUI.key };
+    toast('Eigener Bildausschnitt übernommen.');
+  }
+  cropUI.on = false;
+  anc.on = false;
+  document.body.classList.remove('anchor-mode', 'crop-mode');
+  $('#view-edit').classList.remove('anchor-mode');
+  $('#panel-crop').hidden = true;
+  $('#crop-layer').hidden = true;
+  setTab(ui.tab);
+  player?.stopInspect();
+  if (apply) project.computeCrop();
+  layoutStage();
+  updatePrimary();
+  updateCropState();
+  if (apply) scheduleRefresh(0);
+  scheduleSave();
+}
+
+function updateCropState() {
+  const t = project.customCrop ? `eigener Ausschnitt${project.customCrop.key !== 'frei' ? ' · ' + project.customCrop.key : ''}` : 'automatisch (größtmöglich)';
+  $('#crop-state').textContent = t;
+  if ($('#crop-summary')) $('#crop-summary').textContent = t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function renderCrop() {
+  const ref = project.ref, m = Math.max(ref.w, ref.h), rw = ref.w / m, rh = ref.h / m, r = cropUI.rect;
+  // randfreier Bereich = Schnittmenge aller Foto-Umrisse (eine Linie), außerhalb stark abgedunkelt
+  const area = cropUI.area || (cropUI.area = intersectAll(cropUI.quads, [[0, 0], [rw, 0], [rw, rh], [0, rh]]));
+  const areaPath = area.length ? `M${area.map(p => p.join(' ')).join('L')}Z` : '';
+  const hs = 0.035 * Math.max(rw, rh);
+  const corners = [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
+  $('#crop-layer').innerHTML = `<svg viewBox="0 0 ${rw} ${rh}" preserveAspectRatio="none">
+    <path d="M0 0H${rw}V${rh}H0Z ${areaPath}" fill="rgba(0,0,0,.6)" fill-rule="evenodd"/>
+    <path d="${areaPath} M${r.x} ${r.y}V${r.y + r.h}H${r.x + r.w}V${r.y}Z" fill="rgba(0,0,0,.35)" fill-rule="evenodd"/>
+    <path d="${areaPath}" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="${0.004 * rw}" stroke-dasharray="${0.012 * rw} ${0.008 * rw}"/>
+    <rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="#ffb547" stroke-width="${0.006 * rw}"/>
+    <path d="M${r.x + r.w / 3} ${r.y}V${r.y + r.h}M${r.x + 2 * r.w / 3} ${r.y}V${r.y + r.h}M${r.x} ${r.y + r.h / 3}H${r.x + r.w}M${r.x} ${r.y + 2 * r.h / 3}H${r.x + r.w}" stroke="rgba(255,255,255,.35)" stroke-width="${0.002 * rw}"/>
+    ${corners.map(([x, y]) => `<rect x="${x - hs / 2}" y="${y - hs / 2}" width="${hs}" height="${hs}" rx="${hs / 4}" fill="#ffb547" stroke="#000" stroke-width="${0.002 * rw}"/>`).join('')}
+  </svg>`;
+  $$('#crop-aspect button').forEach(b => b.classList.toggle('on', b.dataset.v === cropUI.key));
+}
+
+/** Schnittmenge konvexer Polygone (Sutherland-Hodgman). */
+function intersectAll(quads, start) {
+  let poly = start;
+  for (const q of quads) {
+    let area = 0;
+    for (let i = 0; i < q.length; i++) { const [a, b] = q[i], [c, d] = q[(i + 1) % q.length]; area += a * d - c * b; }
+    const sg = area >= 0 ? 1 : -1;
+    for (let i = 0; i < q.length && poly.length; i++) {
+      const [ax, ay] = q[i], [bx, by] = q[(i + 1) % q.length];
+      const side = ([x, y]) => ((bx - ax) * (y - ay) - (by - ay) * (x - ax)) * sg;
+      const out = [];
+      for (let j = 0; j < poly.length; j++) {
+        const P = poly[j], Q = poly[(j + 1) % poly.length], sp = side(P), sq = side(Q);
+        if (sp >= 0) out.push(P);
+        if ((sp >= 0) !== (sq >= 0)) { const t = sp / (sp - sq); out.push([P[0] + (Q[0] - P[0]) * t, P[1] + (Q[1] - P[1]) * t]); }
+      }
+      poly = out;
+    }
+  }
+  return poly;
+}
+
+/** Rahmen übernehmen, aber nie über den randfreien Bereich hinaus („stößt an“). */
+function setCropRect(cand) {
+  if (cand.w < 0.06 || cand.h < 0.06) return;
+  if (Project.rectInside(cropUI.quads, cand)) { cropUI.rect = cand; return; }
+  const a = cropUI.rect;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 20; i++) {
+    const t = (lo + hi) / 2;
+    const r = { x: a.x + (cand.x - a.x) * t, y: a.y + (cand.y - a.y) * t, w: a.w + (cand.w - a.w) * t, h: a.h + (cand.h - a.h) * t };
+    if (Project.rectInside(cropUI.quads, r)) lo = t; else hi = t;
+  }
+  cropUI.rect = { x: a.x + (cand.x - a.x) * lo, y: a.y + (cand.y - a.y) * lo, w: a.w + (cand.w - a.w) * lo, h: a.h + (cand.h - a.h) * lo };
+}
+
+const cropLayer = $('#crop-layer');
+cropLayer.addEventListener('pointerdown', e => {
+  if (!cropUI.on) return;
+  const ref = project.ref, m = Math.max(ref.w, ref.h), rect = cropLayer.getBoundingClientRect();
+  const sx = rect.width / (ref.w / m);   // Bildschirmpunkte je kanonische Einheit
+  const x = (e.clientX - rect.left) / sx, y = (e.clientY - rect.top) / sx, r = cropUI.rect;
+  const corners = [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
+  let corner = -1, best = 30 / sx;
+  corners.forEach(([cx, cy], k) => { const d = Math.hypot(cx - x, cy - y); if (d < best) { best = d; corner = k; } });
+  const inside = x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
+  if (corner < 0 && !inside) return;
+  cropUI.drag = { corner, x0: x, y0: y, r0: { ...r }, sx, rect };
+  cropLayer.setPointerCapture(e.pointerId);
+});
+cropLayer.addEventListener('pointermove', e => {
+  const d = cropUI.drag;
+  if (!d) return;
+  const x = (e.clientX - d.rect.left) / d.sx, y = (e.clientY - d.rect.top) / d.sx, r0 = d.r0;
+  if (d.corner < 0) {
+    // getrennt nach Achsen -> der Rahmen gleitet am Rand entlang statt stehen zu bleiben
+    const tx = r0.x + x - d.x0, ty = r0.y + y - d.y0;
+    setCropRect({ ...cropUI.rect, x: tx });
+    setCropRect({ ...cropUI.rect, y: ty });
+  } else {
+    // gegenüberliegende Ecke bleibt fest
+    const fx = d.corner % 2 === 0 ? r0.x + r0.w : r0.x, fy = d.corner < 2 ? r0.y + r0.h : r0.y;
+    let w = Math.abs(x - fx), h = Math.abs(y - fy);
+    const ratio = CROP_ASPECTS[cropUI.key];
+    if (ratio) { if (w / h > ratio) h = w / ratio; else w = h * ratio; }
+    setCropRect({ x: x < fx ? fx - w : fx, y: y < fy ? fy - h : fy, w, h });
+  }
+  renderCrop();
+});
+const cropEnd = () => { cropUI.drag = null; };
+cropLayer.addEventListener('pointerup', cropEnd);
+cropLayer.addEventListener('pointercancel', cropEnd);
+
+$('#crop-aspect').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  cropUI.key = b.dataset.v;
+  const ratio = CROP_ASPECTS[cropUI.key];
+  if (ratio) {
+    const r = cropUI.rect, nr = Project.maxRectAt(cropUI.quads, r.x + r.w / 2, r.y + r.h / 2, ratio);
+    if (nr) cropUI.rect = nr;
+  }
+  renderCrop();
+});
+$('#crop-auto').onclick = () => {
+  project.customCrop = null;
+  closeCrop(false);
+  project.computeCrop();
+  layoutStage();
+  scheduleRefresh(0);
+  updateCropState();
+  toast('Automatischer Ausschnitt (größtmöglich).');
+};
+$('#crop-cancel').onclick = () => closeCrop(false);
+$('#crop-btn').onclick = () => openCrop();
+$('#crop-btn2').onclick = () => openCrop();
+
 // ---- Vollbild-Vorschau (Antippen der Vorschau) ----
 function enterFullscreen() {
   if (!player || ui.fs) return;
@@ -534,7 +706,7 @@ function exitFullscreen() {
   layoutStage();
 }
 $('#stage').addEventListener('click', e => {
-  if (anc.on || e.target.closest('.anchor-layer')) return;
+  if (anc.on || cropUI.on || e.target.closest('.anchor-layer') || e.target.closest('.crop-layer')) return;
   ui.fs ? exitFullscreen() : enterFullscreen();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') exitFullscreen(); });
@@ -1425,7 +1597,8 @@ function onSetting(key) {
   store.set('settings', s);
   syncSettingsUI();
   if (VIDEO_KEYS.has(key)) { player?.invalidate(); updateDuration(); }
-  else if (key === 'aspect' || key === 'zoom') { if (project.aligned) { project.computeCrop(); layoutStage(); player?.invalidate(); scheduleRefresh(); } }
+  else if (key === 'aspect' || key === 'zoom') {
+    if (project.customCrop) { project.customCrop = null; toast('Eigener Ausschnitt durch neues Format ersetzt.'); } if (project.aligned) { project.computeCrop(); layoutStage(); player?.invalidate(); scheduleRefresh(); } }
   else if (COLOR_KEYS.has(key)) { project.computeColor(); player?.render(); }
   else if (GLOBAL_KEYS.has(key)) player?.render();
   else if (ALIGN_KEYS.has(key)) {
@@ -1771,6 +1944,7 @@ async function resumeProject() {
     project.refId = data.meta.refId;
     project.anchors = data.meta.anchors || [];
     project.anchorsActive = !!data.meta.anchorsActive;
+    project.customCrop = data.meta.customCrop || null;
     project.aligned = !!data.meta.aligned && project.frames.some(f => f.id === project.refId);
     syncSettingsUI();
     renderGrid();

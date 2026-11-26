@@ -5,6 +5,7 @@ Lapse macht aus einer Fotoserie ein ruhiges, flackerfreies Zeitraffer-Video – 
 1. **Fotos** auswählen.
 2. **Punkte:** Auf *einem* Foto 4–5 Stellen antippen, die in allen Fotos vorhanden sind und sich nicht bewegen (z. B. die ersten Haferflocken in einer Petrischale). Lapse findet sie in allen anderen Fotos selbst – auch bei beliebiger Drehung, anderem Zoom, anderem Licht und wenn sich das Aussehen ändert (z. B. vom Schleimpilz überwachsene Flocken): Es vergleicht dann die Anordnung der Punkte wie ein Sternbild – richtet danach aus, schneidet ohne Ränder zu und gleicht Helligkeit und Farbe an. (Für Stativaufnahmen ohne Drehung gibt es „Ohne Punkte automatisch ausrichten“.)
 3. **Vorschau:** Antippen = Vollbild-Wiedergabe. Reiter *Tempo* (Geschwindigkeit, Überblendung), *Bild* (Format, Angleichen, Belichtung, Kontrast, Sättigung) und *Fotos* (unsichere Fotos prüfen und Punkte per Finger korrigieren). Seltenes steckt unter „Mehr“.
+   **Bildausschnitt:** „✂ Bildausschnitt anpassen“ (unter der Vorschau oder auf der Export-Seite) – Rahmen verschieben oder an den Ecken ziehen, Format Frei/16:9/9:16/1:1/4:3/3:4. Der Rahmen bleibt im Bereich, den alle Fotos abdecken, damit keine Ränder entstehen. „Automatisch (größtmöglich)“ setzt zurück.
 4. **Export:** MP4, HEVC, WebM, GIF oder JPEG-Einzelbilder; danach „In Fotos sichern“.
 
 Projekt und letztes Video werden laufend auf dem Gerät gesichert („Letztes Projekt fortsetzen“ nach einem Neuladen). Alle Berechnungen laufen lokal; die Originalfotos werden nur gelesen, nie verändert.

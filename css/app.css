@@ -256,9 +256,9 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border-radius: 
 /* Ankerpunkte */
 .strip-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 #view-edit.anchor-mode .transport, #view-edit.anchor-mode .tabs, #view-edit.anchor-mode .notice,
-#view-edit.anchor-mode .panel:not(#panel-anchors):not(#panel-review), #view-edit.anchor-mode .strip-actions,
+#view-edit.anchor-mode .panel:not(#panel-anchors):not(#panel-review):not(#panel-crop), #view-edit.anchor-mode .strip-actions,
 #view-edit.anchor-mode .guide, #view-edit.anchor-mode .issues { display: none !important; }
-body.anchor-mode:not(.review-mode) .actionbar { display: none; }
+body.anchor-mode:not(.review-mode):not(.crop-mode) .actionbar { display: none; }
 body.review-mode .anc-nav, body.review-mode #panel-anchors .btn-grid { display: none; }
 body.anchor-mode:not(.review-mode) { padding-bottom: calc(16px + var(--safe-b)); }
 .anchor-layer { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
@@ -387,6 +387,15 @@ body.review-mode .strip-head, body.review-mode .strip { display: none; }
 .tapdot { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #6cb6ff; border: 2px solid #fff;
   box-shadow: 0 0 0 1px rgba(0,0,0,.7); pointer-events: none; }
 .mini-ring { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid var(--accent); box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+
+/* Bildausschnitt */
+.crop-row { display: flex; align-items: center; gap: 10px; margin: 2px 0 6px; }
+body.crop-mode #panel-anchors, body.crop-mode #panel-review { display: none !important; }
+body.crop-mode #panel-crop { display: block !important; }
+body.crop-mode .strip-head, body.crop-mode .strip, body.crop-mode .crop-row, body.crop-mode .anchor-layer { display: none !important; }
+.crop-layer { position: absolute; inset: 0; touch-action: none; z-index: 3; }
+.crop-layer svg { width: 100%; height: 100%; display: block; }
+.crop-card-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
 /* Export */
 .ticks { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-top: -2px; }
