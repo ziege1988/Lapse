@@ -381,3 +381,38 @@ export function matchConstellation(anchors, blobs, { fitModel, tol = 0.022 } = {
   if (!best || best.support < Math.min(3, n)) return best && { ...best, weak: true };
   return best;
 }
+
+// ---------- Korrektur: Tipps ohne Reihenfolge zuordnen ----------
+/**
+ * Ordnet 3+ angetippte Stellen (Bild, kanonisch, beliebige Reihenfolge) den Bezugspunkten zu,
+ * indem Abstände/Winkel verglichen werden (alle Zuordnungen, Ähnlichkeitstransformation).
+ * Rückgabe { H (Bild -> Referenz), map: [Bezugspunkt je Tipp], rms, ambiguous } oder null.
+ */
+export function assignTaps(taps, anchors, fitModel) {
+  const t = taps.length, n = anchors.length;
+  if (t < 3 || n < t) return null;
+  const src = taps.flatMap(p => [p.x, p.y]), idx = taps.map((_, i) => i);
+  const results = [];
+  const used = new Array(n).fill(false), cur = [];
+  const rec = () => {
+    if (cur.length === t) {
+      const dst = cur.flatMap(k => [anchors[k].x, anchors[k].y]);
+      const H = fitModel('similarity', src, dst, idx);
+      if (!H) return;
+      const zoom = Math.hypot(H[0], H[3]);
+      if (zoom < 0.4 || zoom > 2.5) return;
+      let se = 0;
+      for (let i = 0; i < t; i++) { const [x, y] = apply(H, src[2 * i], src[2 * i + 1]); se += (x - dst[2 * i]) ** 2 + (y - dst[2 * i + 1]) ** 2; }
+      results.push({ H, map: cur.slice(), rms: Math.sqrt(se / t) });
+      return;
+    }
+    for (let k = 0; k < n; k++) if (!used[k]) { used[k] = true; cur.push(k); rec(); cur.pop(); used[k] = false; }
+  };
+  rec();
+  if (!results.length) return null;
+  results.sort((a, b) => a.rms - b.rms);
+  const best = results[0], second = results[1];
+  // alle plausiblen Zuordnungen mitgeben – die Bildprüfung entscheidet bei Gleichstand
+  const alternatives = results.filter(r => r.rms <= Math.max(0.03, best.rms * 2)).slice(0, 6);
+  return { ...best, alternatives, ambiguous: !!second && second.rms < best.rms * 1.6 && second.rms < 0.02 };
+}

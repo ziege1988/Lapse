@@ -1,7 +1,7 @@
 // Lapse – Steuerung der Oberfläche.
 
 import { Project, newManual, DEFAULT_SETTINGS } from './project.js';
-import { Aligner, importFiles, sortFrames, alignAll, refineFrame, StatsEngine, anchorUniqueness, trackAllAnchors, refineAnchored, snapFrameAnchors, alignByAnchors } from './pipeline.js';
+import { Aligner, importFiles, sortFrames, alignAll, refineFrame, StatsEngine, anchorUniqueness, trackAllAnchors, refineAnchored, snapFrameAnchors, alignByAnchors, correctByTaps } from './pipeline.js';
 import { Player } from './player.js';
 import { FORMATS, findConfig, mediaRecorderType, outputSize, sourceDetail, runExport, exportPlan, qualityName } from './export.js';
 import { inv, mul, apply, I3 } from './geometry.js';
@@ -127,9 +127,12 @@ function updateSteps() {
 function updatePrimary() {
   const b = $('#primary'), n = project.frames.length;
   b.disabled = false;
-  if (ui.review && anc.on) {
+  if (ui.review) {
     const r = ui.review, last = reviewRemaining() <= 1;
-    b.textContent = last ? 'Passt – fertig' : `Passt – nächstes Foto (${r.pos} von ${r.total})`;
+    if (r.mode === 'tap') {
+      b.textContent = r.busy ? 'Wird ausgerichtet …' : `Noch ${3 - r.taps.length} Flocke${3 - r.taps.length === 1 ? '' : 'n'} antippen`;
+      b.disabled = true;
+    } else b.textContent = last ? 'Ja, passt – fertig' : 'Ja, passt – nächstes Foto';
     return;
   }
   if (ui.view === 'photos') {
@@ -147,7 +150,7 @@ function updatePrimary() {
 $$('.step').forEach(b => b.onclick = () => !b.disabled && showView(b.dataset.view));
 
 $('#primary').onclick = () => {
-  if (ui.review && anc.on) { reviewAccept(); return; }
+  if (ui.review) { if (ui.review.mode === 'ask') reviewAccept(); return; }
   if (ui.view === 'photos') {
     if (!project.frames.length) $('#file').click();
     else if (project.aligned) showView('edit');
@@ -364,19 +367,63 @@ $('#review-list').onclick = e => {
 $('#review-start').onclick = () => startReview();
 
 // ---- Geführte Prüfung: ein Foto nach dem anderen, klares Ende ----
+// Pro Foto nur eine Frage: „Sitzen die Ringe auf den Flocken?“ – Ja (weiter) oder
+// 3 Flocken antippen (Reihenfolge egal, Zuordnung über die Abstände) oder entfernen.
 function reviewRemaining() {
   const r = ui.review;
   return r ? r.ids.slice(r.i).filter(id => project.byId(id)).length : 0;
 }
 function startReview(startId) {
-  const ids = problemFrames().map(f => f.id);
+  const ids = startId && !problemFrames().some(f => f.id === startId) ? [startId] : problemFrames().map(f => f.id);
   if (!ids.length) return;
   $('#review').hidden = true;
   const i = Math.max(0, ids.indexOf(startId));
-  ui.review = { ids, i, pos: 1, total: ids.length };
-  document.body.classList.add('review-mode');
+  ui.review = { ids, i, pos: i + 1, total: ids.length, mode: 'ask', taps: [], done: new Set() };
   if (ui.view !== 'edit') showView('edit');
-  openAnchors(project.byId(ids[i]));
+  exitFullscreen();
+  anc.on = true;
+  document.body.classList.add('anchor-mode', 'review-mode');
+  $('#view-edit').classList.add('anchor-mode');
+  $('#panel-review').hidden = false;
+  $('#anchor-layer').hidden = false;
+  showReviewFrame();
+}
+function reviewFrame() { const r = ui.review; return r && project.byId(r.ids[r.i]); }
+async function showReviewFrame() {
+  const f = reviewFrame();
+  if (!f) return;
+  anc.frame = f;
+  player.showRaw(f);
+  layoutStage();
+  renderReview();
+  window.scrollTo({ top: 0 });
+}
+function renderReview() {
+  const r = ui.review, f = reviewFrame();
+  if (!r || !f) return;
+  const m = Math.max(f.w, f.h);
+  // Ringe: vermutete Lage der Bezugspunkte in diesem Foto (ohne Nummern)
+  let html = '';
+  if (r.mode === 'ask' && f.align?.ok) {
+    const Ti = inv(project.transform(f));
+    if (Ti) html = project.anchors.map(a => { const [x, y] = apply(Ti, a.x, a.y); return `<div class="ring" style="left:${x * m / f.w * 100}%;top:${y * m / f.h * 100}%"></div>`; }).join('');
+  }
+  html += r.taps.map(t => `<div class="tapdot" style="left:${t.x * m / f.w * 100}%;top:${t.y * m / f.h * 100}%"></div>`).join('');
+  $('#anchor-layer').innerHTML = html;
+  // Bezugsfoto mit Ringen
+  const ref = project.ref, rm = Math.max(ref.w, ref.h), mini = $('#rv-mini');
+  mini.style.aspectRatio = `${ref.w} / ${ref.h}`;
+  mini.innerHTML = `<img src="${ref.thumbUrl}" alt="">` + project.anchors.map(a => `<span class="mini-ring" style="left:${a.x * rm / ref.w * 100}%;top:${a.y * rm / ref.h * 100}%"></span>`).join('');
+  $('#rv-title').textContent = `Foto ${r.pos} von ${r.total}`;
+  $('#rv-name').textContent = f.name;
+  $('#rv-dots').innerHTML = r.ids.map((id, k) => `<i class="${k === r.i ? 'cur' : r.done.has(id) ? 'done' : ''}"></i>`).join('');
+  $('#rv-q').textContent = r.busy ? 'Einen Moment – das Foto wird ausgerichtet …'
+    : r.mode === 'tap' ? `Tippe im Foto auf 3 der markierten Haferflocken – die Reihenfolge ist egal. (${r.taps.length} von 3)`
+    : !f.align?.ok ? 'Lapse hat die Flocken hier nicht gefunden. Tippe 3 der markierten Haferflocken an – oder entferne das Foto.'
+    : 'Sitzen die orangen Ringe auf denselben Haferflocken wie im Bezugsfoto?';
+  $('#rv-retap').textContent = r.mode === 'tap' ? 'Antippen abbrechen' : 'Nein – Flocken antippen';
+  $('#rv-retap').disabled = !!r.busy;
+  if (r.mode === 'ask' && !f.align?.ok) { r.mode = 'tap'; return renderReview(); }
   updatePrimary();
 }
 function reviewGoto(step) {
@@ -384,24 +431,71 @@ function reviewGoto(step) {
   r.i += step;
   while (r.i < r.ids.length && !project.byId(r.ids[r.i])) r.i++;
   if (r.i >= r.ids.length) { endReview(true); return; }
-  r.pos = Math.min(r.total, r.pos + 1);
-  showAnchorFrame(project.byId(r.ids[r.i]));
-  updatePrimary();
+  r.pos = Math.min(r.total, r.i + 1);
+  r.mode = 'ask'; r.taps = [];
+  showReviewFrame();
 }
-/** „Passt“: Foto als geprüft markieren und zum nächsten */
+/** „Ja, passt“: Foto als geprüft markieren und zum nächsten */
 function reviewAccept() {
-  const f = anc.frame;
-  if (f) { f.manualChecked = true; if (f.excluded && f.autoExcluded && f.align?.ok) { f.excluded = false; f.autoExcluded = false; } }
+  const f = reviewFrame();
+  if (f) {
+    f.manualChecked = true;
+    if (f.excluded && f.align?.ok) { f.excluded = false; f.autoExcluded = false; }
+    ui.review.done.add(f.id);
+  }
   scheduleSave();
   reviewGoto(1);
 }
 function endReview(done) {
   ui.review = null;
-  document.body.classList.remove('review-mode');
-  closeAnchors();
+  anc.on = false;
+  document.body.classList.remove('anchor-mode', 'review-mode');
+  $('#view-edit').classList.remove('anchor-mode');
+  $('#panel-review').hidden = true;
+  $('#anchor-layer').hidden = true;
+  $('#anchor-layer').innerHTML = '';
+  setTab(ui.tab);
+  player?.stopInspect();
+  layoutStage();
+  renderStrip();
+  scheduleRefresh(0);
   updatePrimary();
   if (done) toast('Alle Fotos geprüft ✓ – Vorschau antippen für Vollbild.', 4000);
 }
+// Tippen ins Foto: Flocke markieren; nach 3 Tipps automatisch ausrichten
+async function reviewTap(e) {
+  const r = ui.review, f = reviewFrame();
+  if (!r || !f || r.busy) return;
+  const rect = $('#anchor-layer').getBoundingClientRect(), m = Math.max(f.w, f.h);
+  const x = (e.clientX - rect.left) / rect.width * f.w / m, y = (e.clientY - rect.top) / rect.height * f.h / m;
+  if (r.mode === 'ask') { r.mode = 'tap'; r.taps = []; }
+  r.taps.push({ x, y });
+  renderReview();
+  if (r.taps.length < 3) return;
+  r.busy = true; renderReview();
+  try {
+    const res = await correctByTaps(project, getAligner(), f, r.taps);
+    r.busy = false; r.taps = [];
+    if (res.ok) { r.mode = 'ask'; project.assessQuality(); toast('Neu ausgerichtet – bitte kurz prüfen.', 2500); }
+    else toast(res.reason === 'ambiguous' ? 'Nicht eindeutig – bitte 3 Flocken antippen, die weiter auseinander liegen.' : 'Diese 3 Stellen passen nicht zu den markierten Flocken – bitte nochmal antippen.', 4500);
+  } catch (err) { r.busy = false; r.taps = []; toast('Fehler: ' + err.message, 5000); }
+  renderReview();
+}
+$('#rv-retap').onclick = () => {
+  const r = ui.review;
+  if (!r) return;
+  r.mode = r.mode === 'tap' && reviewFrame()?.align?.ok ? 'ask' : 'tap';
+  r.taps = [];
+  renderReview();
+};
+$('#rv-remove').onclick = () => {
+  const f = reviewFrame();
+  if (!f || f.id === project.refId) return;
+  removeProblem([f.id]);
+  toast(`„${f.name}“ entfernt.`);
+  reviewGoto(1);
+};
+$('#rv-quit').onclick = () => endReview(false);
 $('#review-remove-all').onclick = () => {
   const ids = problemFrames().map(f => f.id);
   $('#review').hidden = true;
@@ -650,7 +744,8 @@ function layoutStage() {
   const aspect = anc.on ? anc.frame.w / anc.frame.h : project.crop.w / project.crop.h;
   const avail = $('.stage-wrap').clientWidth || window.innerWidth - 32;
   // Vorschau bleibt angeheftet -> Höhe begrenzen, damit genug Platz für die Regler bleibt
-  const maxH = Math.min(window.innerHeight * (anc.on ? 0.5 : 0.36), anc.on ? 900 : 560);
+  // Prüfansicht: Foto so groß, dass Frage und Knöpfe ohne Scrollen sichtbar bleiben
+  const maxH = Math.min(window.innerHeight * (ui.review ? 0.4 : anc.on ? 0.5 : 0.36), anc.on ? 900 : 560);
   let w = Math.min(avail, maxH * aspect), h = w / aspect;
   $('#stage').style.width = w + 'px';
   $('#stage').style.height = h + 'px';
@@ -1094,6 +1189,7 @@ $('#anc-list').onclick = e => {
 // Antippen = Punkt setzen (nur Referenz), Ziehen = verschieben (relativ, mit Lupe)
 const layer = $('#anchor-layer');
 layer.addEventListener('pointerdown', e => {
+  if (ui.review) { reviewTap(e); return; }
   const f = anc.frame;
   if (!f) return;
   const rect = layer.getBoundingClientRect(), m = Math.max(f.w, f.h);
@@ -1222,6 +1318,7 @@ function drawLoupe(x, y) {
 
 $('#anchor-btn').onclick = () => openAnchors();
 $('#f-anchors').onclick = () => {
+  if (ui.selected && ui.selected.id !== project.refId && project.anchors.length >= 3) { startReview(ui.selected.id); return; }
   const f = ui.selected;
   openAnchors(f && f.anchorPts && f.id !== project.refId ? f : project.ref);
   if (f && f.id !== project.refId && !project.anchors.length) toast('Erst im Referenzbild Punkte setzen, dann „In allen Fotos suchen“.', 4500);

@@ -3,6 +3,7 @@
 import { readCaptureTime } from './exif.js';
 import { decode, sizeOf, release, scaleTo, toBlob, grayOf, grayChromaOf, freeCanvas, makeCanvas } from './images.js';
 import { mul, I3, fitModel } from './geometry.js';
+import { assignTaps } from './anchors.js';
 import { newManual, statsOf } from './project.js';
 import { Renderer } from './renderer.js';
 
@@ -363,6 +364,41 @@ export async function alignByAnchors(project, aligner, { onProgress, isCancelled
   project.anchorsActive = true;
   project.aligned = true;
   return { ok, failed };
+}
+
+/**
+ * Korrektur per Antippen: 3+ Flocken in beliebiger Reihenfolge -> Zuordnung über die Abstände,
+ * dann alle Punkte auf die passenden Flocken setzen und neu ausrichten.
+ * Rückgabe: { ok, reason } (reason: 'nomatch' | 'ambiguous').
+ */
+export async function correctByTaps(project, aligner, f, taps) {
+  const anchors = project.anchors.map(a => ({ x: a.x, y: a.y }));
+  const as = assignTaps(taps, anchors, fitModel);
+  if (!as || as.rms > 0.03) return { ok: false, reason: 'nomatch' };
+  await setReference(project, aligner);
+  const g = await grayFromPreview(f, DIRECT_RES, true);
+  // Jede plausible Zuordnung am Bild prüfen: Bei der richtigen liegen auch die
+  // nicht angetippten Punkte auf Flocken
+  let best = null;
+  for (const cand of as.alternatives) {
+    const gray = g.gray.slice().buffer, chroma = g.chroma.slice().buffer;
+    const r = await aligner.call({ type: 'snapTaps', refId: project.refId, gray, chroma, w: g.w, h: g.h, anchors, taps, map: cand.map, H: cand.H }, [gray, chroma]);
+    if (!r.ok) continue;
+    const others = r.points.filter(p => !p.tapped && p.snapped).length, tapped = r.points.filter(p => p.tapped && p.snapped).length;
+    const score = others * 2 + tapped - cand.rms * 20;
+    if (!best || score > best.score) best = { score, r, others };
+  }
+  if (!best) return { ok: false, reason: 'nomatch' };
+  if (anchors.length > taps.length && best.others === 0 && as.ambiguous) return { ok: false, reason: 'ambiguous' };
+  const r = best.r;
+  if (!f.autoAlign) f.autoAlign = f.align;
+  f.anchorPts = r.points.map(p => (p.tapped
+    ? { x: p.x, y: p.y, score: 1, manual: true, snapped: p.snapped, pinned: false, tapX: p.x, tapY: p.y }
+    : p.snapped ? { x: p.x, y: p.y, score: 0.6, manual: false } : { x: p.x, y: p.y, score: 0, manual: false, pred: true }));
+  f.geoSupport = r.points.filter(p => p.snapped).length;
+  project.applyAnchors(f);
+  project.anchorsActive = true;
+  return { ok: !!f.align?.ok };
 }
 
 /** Sucht die Ankerpunkte in allen Fotos und richtet danach aus. */

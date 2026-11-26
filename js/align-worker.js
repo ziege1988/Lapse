@@ -212,6 +212,39 @@ function handle(msg) {
       });
       return { type: 'locate', id: msg.id, ok: true, points, score: loc?.score ?? 0, predH: H, geoSupport: Math.min(geoSupport, strict), source };
     }
+    case 'snapTaps': {
+      // Korrektur: Lage aus angetippten Flocken (H), dann jeden Punkt auf die nächste passende Flocke setzen
+      if (!ref || ref.id !== msg.refId) return { type: 'snapTaps', ok: false };
+      const pyr = pyramid(new Uint8Array(msg.gray), msg.w, msg.h);
+      const cpyr = msg.chroma ? pyramid(new Uint8Array(msg.chroma), msg.w, msg.h) : null;
+      const m = Math.max(msg.w, msg.h);
+      const blobs = detectBlobs(pyr, m, { cpyr, maxBlobs: 40 });
+      if (!ref.blobs) ref.blobs = detectBlobs(ref.pyr, ref.m, { cpyr: ref.cpyr });
+      const Hi = inv(msg.H);
+      if (!Hi) return { type: 'snapTaps', ok: false };
+      const zoom = Math.sqrt(Math.abs(Hi[0] * Hi[4] - Hi[1] * Hi[3])) || 1;
+      const points = msg.anchors.map((a, k) => {
+        const ti = msg.map.indexOf(k);
+        const [px, py] = ti >= 0 ? [msg.taps[ti].x, msg.taps[ti].y] : (() => { const z = Hi[6] * a.x + Hi[7] * a.y + Hi[8]; return [(Hi[0] * a.x + Hi[1] * a.y + Hi[2]) / z, (Hi[3] * a.x + Hi[4] * a.y + Hi[5]) / z]; })();
+        // Flocke im Bezugsfoto (Größe + Versatz Tipp <-> Mitte)
+        let rb = null, rd = Infinity;
+        for (const c of ref.blobs) { const d = Math.hypot(c.x - a.x, c.y - a.y); if (d < rd) { rd = d; rb = c; } }
+        const useRef = rb && rd < 0.022;
+        let best = null, bd = ti >= 0 ? 0.035 : 0.02;
+        for (const b of blobs) {
+          if (useRef) { const r = b.sig / (rb.sig * zoom); if (r < 0.5 || r > 2) continue; }
+          const d = Math.hypot(b.x - px, b.y - py);
+          if (d < bd) { bd = d; best = b; }
+        }
+        if (best) {
+          let ox = 0, oy = 0;
+          if (useRef) { const dx = a.x - rb.x, dy = a.y - rb.y; ox = Hi[0] * dx + Hi[1] * dy; oy = Hi[3] * dx + Hi[4] * dy; }
+          return { x: best.x + ox, y: best.y + oy, snapped: true, tapped: ti >= 0 };
+        }
+        return { x: px, y: py, snapped: false, tapped: ti >= 0 };
+      });
+      return { type: 'snapTaps', ok: true, points };
+    }
     case 'uniq': {
       if (!ref || ref.id !== msg.refId) return { type: 'uniq', values: [] };
       return { type: 'uniq', values: msg.anchors.map(a => anchorUniqueness(ref, a)) };
