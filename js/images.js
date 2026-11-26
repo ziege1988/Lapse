@@ -76,3 +76,16 @@ export function grayOf(canvas) {
   for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (d[i] * 54 + d[i + 1] * 183 + d[i + 2] * 19) >> 8;
   return { gray: g, w, h };
 }
+
+/** Graustufen + „Gelbanteil“ ((R+G)/2 − B, verstärkt) – Haferflocken/Schleimpilz heben sich vom weißen Papier ab. */
+export function grayChromaOf(canvas) {
+  const { width: w, height: h } = canvas;
+  const d = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  const g = new Uint8Array(w * h), c = new Uint8Array(w * h);
+  for (let i = 0, j = 0; j < g.length; i += 4, j++) {
+    g[j] = (d[i] * 54 + d[i + 1] * 183 + d[i + 2] * 19) >> 8;
+    const y = ((d[i] + d[i + 1]) >> 1) - d[i + 2];
+    c[j] = Math.max(0, Math.min(255, 128 + y * 2));
+  }
+  return { gray: g, chroma: c, w, h };
+}

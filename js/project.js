@@ -245,7 +245,10 @@ export class Project {
         const pts = (f.anchorPts || []).filter(p => p && !p.outlier && !p.pred);
         const sure = pts.filter(p => p.manual ? (p.snapped || p.pinned) : p.score >= 0.55).length;
         const onlyTaps = (f.anchorPts || []).some(p => p?.manual && !p.snapped && !p.pinned) && a.used <= 2;
+        // Anordnung eindeutig getroffen (fast alle Punkte liegen auf Flecken) -> sicher
+        const geoOk = this.anchors.length >= 4 && f.geoSupport >= 4;
         if (a.used < Math.min(2, this.anchors.length)) { q = 'bad'; note = 'Zu wenige Punkte gefunden'; }
+        else if (geoOk && !(f.anchorPts || []).some(p => p?.manual && !p.snapped && !p.pinned)) { /* gut */ }
         else if (a.ncc != null && a.ncc < 0.5) { q = 'warn'; note = 'Bild passt im Bereich der Punkte schlecht – bitte ansehen'; }
         else if (onlyTaps) { q = 'warn'; note = 'Nur ungefähr getippt – Punkte mit der Lupe genau setzen (ziehen)'; }
         else if (sure < 2) { q = 'warn'; note = 'Punkte unsicher gefunden – bitte ansehen'; }

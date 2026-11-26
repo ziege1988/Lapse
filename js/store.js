@@ -20,7 +20,7 @@ const get = (store, key) => new Promise((res, rej) => { const r = store.get(key)
 
 // Felder eines Fotos, die gespeichert werden (ohne große Daten und abgeleitete Werte)
 const FRAME_FIELDS = ['id', 'name', 'date', 'modified', 'order', 'w', 'h', 'featRes', 'align', 'autoAlign', 'manual',
-  'excluded', 'autoExcluded', 'keepIncluded', 'manualChecked', 'cropOk', 'anchorPts'];
+  'excluded', 'autoExcluded', 'keepIncluded', 'manualChecked', 'cropOk', 'anchorPts', 'geoSupport'];
 
 export class ProjectStore {
   constructor() { this.dbp = null; this.saved = new Set(); }

@@ -3,7 +3,7 @@
 Lapse macht aus einer Fotoserie ein ruhiges, flackerfreies Zeitraffer-Video – direkt im Browser auf dem iPhone, ohne Installation, ohne Upload, ohne Kosten.
 
 1. **Fotos** auswählen.
-2. **Punkte:** Auf *einem* Foto 2–5 Stellen antippen, die in allen Fotos vorhanden sind und sich nicht bewegen (z. B. die ersten Haferflocken in einer Petrischale). Lapse findet sie in allen anderen Fotos selbst – auch bei beliebiger Drehung, anderem Zoom und anderem Licht – richtet danach aus, schneidet ohne Ränder zu und gleicht Helligkeit und Farbe an. (Für Stativaufnahmen ohne Drehung gibt es „Ohne Punkte automatisch ausrichten“.)
+2. **Punkte:** Auf *einem* Foto 4–5 Stellen antippen, die in allen Fotos vorhanden sind und sich nicht bewegen (z. B. die ersten Haferflocken in einer Petrischale). Lapse findet sie in allen anderen Fotos selbst – auch bei beliebiger Drehung, anderem Zoom, anderem Licht und wenn sich das Aussehen ändert (z. B. vom Schleimpilz überwachsene Flocken): Es vergleicht dann die Anordnung der Punkte wie ein Sternbild – richtet danach aus, schneidet ohne Ränder zu und gleicht Helligkeit und Farbe an. (Für Stativaufnahmen ohne Drehung gibt es „Ohne Punkte automatisch ausrichten“.)
 3. **Vorschau:** Antippen = Vollbild-Wiedergabe. Reiter *Tempo* (Geschwindigkeit, Überblendung), *Bild* (Format, Angleichen, Belichtung, Kontrast, Sättigung) und *Fotos* (unsichere Fotos prüfen und Punkte per Finger korrigieren). Seltenes steckt unter „Mehr“.
 4. **Export:** MP4, HEVC, WebM, GIF oder JPEG-Einzelbilder; danach „In Fotos sichern“.
 

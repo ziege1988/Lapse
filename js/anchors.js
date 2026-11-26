@@ -238,3 +238,146 @@ export function locateAnchors(ref, img, refFeat, imgFeat, anchors, { match, fitM
   }
   return { predH: H, score: v, support: best.sup };
 }
+
+// ---------- Sternbild-Verfahren: Anordnung der Punkte statt Aussehen ----------
+// Flocken o. Ä. können ihr Aussehen stark ändern (z. B. vom Schleimpilz überwachsen,
+// anderes Licht). Ihre Lage zueinander bleibt gleich. Daher: alle „Flecken“ passender
+// Größe finden und die Punkte-Anordnung (gedreht/gezoomt) darauf zur Deckung bringen.
+
+/** Flecken (Blobs) in einem Graubild finden – hell oder dunkel, Größe ~ size (kanonisch). */
+export function detectBlobs(pyr, m, { maxBlobs = 24, cpyr = null } = {}) {
+  const li = Math.max(0, pyr.findIndex(L => Math.max(L.w, L.h) <= 340));
+  const idx = li < 0 ? pyr.length - 1 : li;
+  const L = pyr[idx], C = cpyr ? cpyr[Math.min(idx, cpyr.length - 1)] : null;
+  const { w, h } = L;
+  const base = Math.max(w, h);
+  // Helligkeit des Untergrunds: Flecken müssen auf hellem Grund liegen (Papier, nicht Holz/Rand)
+  const lum = blurF(L.img, w, h, 0.004 * base);
+  const sorted = Float32Array.from(lum).sort();
+  const bright = sorted[Math.floor(sorted.length * 0.95)];
+  const cands = [];
+  for (const chan of C ? [L.img, C.img] : [L.img]) {
+    // Hesse-Determinante: reagiert auf kompakte Flecken (hell oder dunkel), nicht auf Kanten
+    for (const sig of [0.011, 0.015, 0.021].map(f => f * base)) {
+      const g = blurF(chan, w, h, sig);
+      const det = new Float32Array(w * h), ok = new Uint8Array(w * h);
+      const s4 = sig * sig * sig * sig;
+      for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        const xx = g[i - 1] - 2 * g[i] + g[i + 1], yy = g[i - w] - 2 * g[i] + g[i + w];
+        const xy = (g[i - w - 1] + g[i + w + 1] - g[i - w + 1] - g[i + w - 1]) / 4;
+        const d = xx * yy - xy * xy, tr = xx + yy;
+        det[i] = d * s4;
+        ok[i] = d > 0 && (tr * tr) / d < 10 ? 1 : 0; // Kanten/Linien verwerfen
+      }
+      const r = Math.max(2, Math.round(sig * 1.2)), ring = Math.max(3, Math.round(sig * 2.4));
+      for (let y = r; y < h - r; y++) for (let x = r; x < w - r; x++) {
+        const i = y * w + x, v = det[i];
+        if (!ok[i] || v < 0.05) continue;
+        let isMax = true;
+        for (let dy = -r; dy <= r && isMax; dy++) for (let dx = -r; dx <= r; dx++) {
+          if ((dx || dy) && det[i + dy * w + dx] > v) { isMax = false; break; }
+        }
+        if (!isMax) continue;
+        // Ring um den Fleck: überwiegend hell (Papier)?
+        let brightCnt = 0, tot = 0;
+        for (let t = 0; t < 16; t++) {
+          const a = t * Math.PI / 8, xx = Math.round(x + Math.cos(a) * ring), yy = Math.round(y + Math.sin(a) * ring);
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          tot++; if (lum[yy * w + xx] >= bright * 0.8) brightCnt++;
+        }
+        if (!tot || brightCnt / tot < 0.5) continue;
+        cands.push({ x: (x + 0.5) * L.s / m, y: (y + 0.5) * L.s / m, v, sig: sig * L.s / m });
+      }
+    }
+  }
+  cands.sort((p, q) => q.v - p.v);
+  const out = [];
+  for (const c of cands) {
+    if (out.length >= maxBlobs) break;
+    if (out.every(o => Math.hypot(o.x - c.x, o.y - c.y) > Math.max(o.sig, c.sig) * 1.8)) out.push(c);
+  }
+  return out;
+}
+
+function blurF(src, w, h, sigma) {
+  // schneller Gauß-Ersatz: dreifacher Boxfilter
+  let a = Float32Array.from(src), b = new Float32Array(w * h);
+  const r = Math.max(1, Math.round(sigma * 0.8));
+  for (let pass = 0; pass < 3; pass++) {
+    for (let y = 0; y < h; y++) {
+      let s = 0; const row = y * w;
+      for (let x = -r; x <= r; x++) s += a[row + Math.min(w - 1, Math.max(0, x))];
+      for (let x = 0; x < w; x++) { b[row + x] = s / (2 * r + 1); s += a[row + Math.min(w - 1, x + r + 1)] - a[row + Math.max(0, x - r)]; }
+    }
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let y = -r; y <= r; y++) s += b[Math.min(h - 1, Math.max(0, y)) * w + x];
+      for (let y = 0; y < h; y++) { a[y * w + x] = s / (2 * r + 1); s += b[Math.min(h - 1, y + r + 1) * w + x] - b[Math.max(0, y - r) * w + x]; }
+    }
+  }
+  return a;
+}
+
+/**
+ * Wie gut passt eine Lage H (Bild -> Referenz, kanonisch) zur Punkte-Anordnung?
+ * Rückgabe { support (Anzahl Punkte mit Fleck in der Nähe), cost, near[] }.
+ */
+export function constellationSupport(H, anchors, blobs, tol = 0.022) {
+  const Hi = inv(H);
+  if (!Hi) return { support: 0, cost: Infinity, strength: 0, near: [] };
+  const zoom = Math.sqrt(Math.abs(Hi[0] * Hi[4] - Hi[1] * Hi[3])) || 1; // Bild/Referenz
+  let support = 0, cost = 0, strength = 0;
+  const near = anchors.map(a => {
+    const [x, y] = apply(Hi, a.x, a.y);
+    let best = null, bd = Infinity;
+    for (const b of blobs) {
+      // Größe muss zur Flocke im Bezugsfoto passen (falls bekannt)
+      if (a.sig) { const r = b.sig / (a.sig * zoom); if (r < 0.55 || r > 1.8) continue; }
+      const d = Math.hypot(b.x - x, b.y - y);
+      if (d < bd) { bd = d; best = b; }
+    }
+    if (bd < tol) { support++; cost += bd; strength += best.v; return best; }
+    cost += tol;
+    return null;
+  });
+  return { support, cost, strength, near };
+}
+
+const better = (a, b) => !b || a.support > b.support || (a.support === b.support && (a.cost < b.cost * 0.85 || (a.cost <= b.cost * 1.15 && a.strength > b.strength)));
+
+/** Sucht die Lage, bei der die meisten Punkte auf passenden Flecken liegen (beliebige Drehung, Zoom 0,6–1,7). */
+export function matchConstellation(anchors, blobs, { fitModel, tol = 0.022 } = {}) {
+  const n = anchors.length;
+  if (n < 2 || blobs.length < 2) return null;
+  // Lagen nur aus den deutlichsten Flecken bilden (Flocken sind meist die stärksten)
+  const strong = blobs.slice(0, 14);
+  let best = null;
+  const src = [0, 0, 0, 0], dst = [0, 0, 0, 0];
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
+    const da = Math.hypot(anchors[b].x - anchors[a].x, anchors[b].y - anchors[a].y);
+    if (da < 0.04) continue;
+    for (let i = 0; i < strong.length; i++) for (let j = 0; j < strong.length; j++) {
+      if (i === j) continue;
+      const db = Math.hypot(strong[j].x - strong[i].x, strong[j].y - strong[i].y);
+      const s = db / da;
+      if (s < 0.6 || s > 1.7) continue;
+      if (anchors[a].sig && (strong[i].sig / (anchors[a].sig * s) < 0.55 || strong[i].sig / (anchors[a].sig * s) > 1.8)) continue;
+      src[0] = strong[i].x; src[1] = strong[i].y; src[2] = strong[j].x; src[3] = strong[j].y;
+      dst[0] = anchors[a].x; dst[1] = anchors[a].y; dst[2] = anchors[b].x; dst[3] = anchors[b].y;
+      const H = fitModel('similarity', src, dst, [0, 1]);
+      if (!H) continue;
+      const sup = constellationSupport(H, anchors, blobs, tol);
+      if (sup.support < 2) continue;
+      // Ausgleich über alle getroffenen Punkte -> genauere Bewertung
+      const s2 = [], d2 = [], idx = [];
+      sup.near.forEach((bb, k) => { if (bb) { idx.push(s2.length / 2); s2.push(bb.x, bb.y); d2.push(anchors[k].x, anchors[k].y); } });
+      const Hf = idx.length >= 3 ? fitModel('similarity', s2, d2, idx) : H;
+      const supF = Hf ? constellationSupport(Hf, anchors, blobs, tol) : sup;
+      const cand = supF.support >= sup.support ? { H: Hf, ...supF } : { H, ...sup };
+      if (better(cand, best)) best = cand;
+    }
+  }
+  if (!best || best.support < Math.min(3, n)) return best && { ...best, weak: true };
+  return best;
+}

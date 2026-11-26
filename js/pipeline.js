@@ -1,7 +1,7 @@
 // Verarbeitungskette: Import -> Merkmale -> Ausrichtung -> Zuschnitt -> Farbstatistik.
 
 import { readCaptureTime } from './exif.js';
-import { decode, sizeOf, release, scaleTo, toBlob, grayOf, freeCanvas, makeCanvas } from './images.js';
+import { decode, sizeOf, release, scaleTo, toBlob, grayOf, grayChromaOf, freeCanvas, makeCanvas } from './images.js';
 import { mul, I3, fitModel } from './geometry.js';
 import { newManual, statsOf } from './project.js';
 import { Renderer } from './renderer.js';
@@ -114,11 +114,11 @@ export function sortFrames(project, mode) {
 export const DIRECT_RES = 640;
 
 /** Graubild aus dem Vorschaubild (schnell, kein erneutes Dekodieren des Originals). */
-async function grayFromPreview(f, res = DIRECT_RES) {
+async function grayFromPreview(f, res = DIRECT_RES, withChroma = false) {
   const bmp = await createImageBitmap(f.previewBlob);
   const c = scaleTo(bmp, res);
   bmp.close?.();
-  const g = grayOf(c);
+  const g = withChroma ? grayChromaOf(c) : grayOf(c);
   freeCanvas(c);
   return g;
 }
@@ -127,8 +127,8 @@ async function grayFromPreview(f, res = DIRECT_RES) {
 export async function setReference(project, aligner) {
   const ref = project.ref;
   if (!ref || aligner.refSet === ref.id) return;
-  const g = await grayFromPreview(ref);
-  await aligner.call({ type: 'setRef', id: ref.id, gray: g.gray.buffer, w: g.w, h: g.h }, [g.gray.buffer]);
+  const g = await grayFromPreview(ref, DIRECT_RES, true);
+  await aligner.call({ type: 'setRef', id: ref.id, gray: g.gray.buffer, chroma: g.chroma.buffer, w: g.w, h: g.h }, [g.gray.buffer, g.chroma.buffer]);
   aligner.refSet = ref.id;
 }
 
@@ -338,12 +338,14 @@ export async function alignByAnchors(project, aligner, { onProgress, isCancelled
     if (isCancelled?.()) return false;
     f.autoAlign = null; f.anchorPts = null; f.align = null;
     f.manual = { ...f.manual, dx: 0, dy: 0, rot: 0, scale: 1 };
-    const g = await grayFromPreview(f);
-    const r = await aligner.call({ type: 'locate', id: f.id, refId: ref.id, gray: g.gray.buffer, w: g.w, h: g.h, anchors }, [g.gray.buffer]);
+    const g = await grayFromPreview(f, DIRECT_RES, true);
+    const r = await aligner.call({ type: 'locate', id: f.id, refId: ref.id, gray: g.gray.buffer, chroma: g.chroma.buffer, w: g.w, h: g.h, anchors }, [g.gray.buffer, g.chroma.buffer]);
+    f.geoSupport = r.ok ? r.geoSupport : 0;
     if (r.ok) {
-      f.anchorPts = r.points.map(p => ({ x: p.x, y: p.y, score: p.score, manual: false }));
+      f.anchorPts = r.points.map(p => ({ x: p.x, y: p.y, score: p.score, manual: false, blob: !!p.blob }));
       project.applyAnchors(f);
-      if (f.align?.ok) await refineAnchored(project, aligner, f);
+      // Flächige Verfeinerung nur, wenn das Aussehen zuverlässig ist (nicht bei Lage aus der Anordnung)
+      if (f.align?.ok && r.source !== 'anordnung') await refineAnchored(project, aligner, f);
     }
     const sure = (f.anchorPts || []).filter(p => !p.outlier && p.score >= 0.55).length;
     if (f.align?.ok && f.align.used >= 2 && sure >= 2) {

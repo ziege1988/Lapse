@@ -11,7 +11,7 @@
 import { detect, match } from './features.js';
 import { ransac, I3, mul, inv, isPlausible, fitModel } from './geometry.js';
 import { pyramid, alignDirect, score, roiPyramid } from './direct.js';
-import { trackAnchors, anchorUniqueness, locateAnchors } from './anchors.js';
+import { trackAnchors, anchorUniqueness, locateAnchors, detectBlobs, matchConstellation, constellationSupport } from './anchors.js';
 
 const store = new Map(); // id -> { n, xy (kanonisch), desc, res }
 let ref = null;          // { id, pyr, m } Referenz für flächenbasierte Ausrichtung / Ankerpunkte
@@ -56,7 +56,7 @@ function handle(msg) {
     }
     case 'setRef': {
       const { id, gray, w, h } = msg;
-      ref = { id, pyr: pyramid(new Uint8Array(gray), w, h), m: Math.max(w, h), w, h };
+      ref = { id, pyr: pyramid(new Uint8Array(gray), w, h), m: Math.max(w, h), w, h, cpyr: msg.chroma ? pyramid(new Uint8Array(msg.chroma), w, h) : null };
       return { type: 'setRef', id };
     }
     case 'align': {
@@ -158,10 +158,59 @@ function handle(msg) {
         return rec;
       };
       const rf = featOf(msg.refId, ref.pyr[0]), mf = featOf(msg.id, pyr[0]);
-      const loc = locateAnchors(ref, img, rf, mf, msg.anchors, { match, fitModel });
-      if (!loc) return { type: 'locate', id: msg.id, ok: false };
-      const points = trackAnchors(ref, img, msg.anchors, loc.predH);
-      return { type: 'locate', id: msg.id, ok: true, points, score: loc.score, predH: loc.predH };
+      const anchors = msg.anchors;
+      // 1) Aussehen (Merkmale + Bildprüfung)
+      const loc = locateAnchors(ref, img, rf, mf, anchors, { match, fitModel });
+      // 2) Anordnung (Sternbild): Flecken im Bild, Punkte-Muster darauf legen
+      const cpyr = msg.chroma ? pyramid(new Uint8Array(msg.chroma), msg.w, msg.h) : null;
+      const blobs = detectBlobs(pyr, img.m, { cpyr });
+      // Flockengröße im Bezugsfoto je Punkt (für die Größenprüfung)
+      if (!ref.blobs) ref.blobs = detectBlobs(ref.pyr, ref.m, { cpyr: ref.cpyr });
+      const sized = anchors.map(a => {
+        let rb = null, rd = Infinity;
+        for (const c of ref.blobs) { const d = Math.hypot(c.x - a.x, c.y - a.y); if (d < rd) { rd = d; rb = c; } }
+        return { x: a.x, y: a.y, sig: rb && rd < 0.022 ? rb.sig : null };
+      });
+      const geo = matchConstellation(sized, blobs, { fitModel });
+      const featSup = loc ? constellationSupport(loc.predH, sized, blobs).support : -1;
+      let H = null, source = '', geoSupport = 0;
+      // Anordnung erst ab 4 Punkten verlässlich (bei 3 Punkten bilden andere Flocken leicht ein gleiches Dreieck)
+      if (geo && !geo.weak && anchors.length >= 4 && geo.support > featSup) { H = geo.H; source = 'anordnung'; geoSupport = geo.support; }
+      else if (loc) { H = loc.predH; source = 'merkmale'; geoSupport = Math.max(0, featSup); }
+      else if (geo) { H = geo.H; source = 'anordnung'; geoSupport = geo.support; }
+      if (!H) return { type: 'locate', id: msg.id, ok: false };
+      // Versatz Tipp <-> Fleckmitte im Bezugsfoto
+      const Hi = inv(H);
+      const lin = Hi ? [Hi[0] - Hi[6] * 0, Hi[1], Hi[3], Hi[4]] : [1, 0, 0, 1];
+      const near = constellationSupport(H, sized, blobs).near;
+      let points = trackAnchors(ref, img, anchors, H);
+      points = points.map((p, k) => {
+        const b = near[k];
+        if (!b) return p;
+        // Fleck in der Bezugsaufnahme nahe am Tipp? -> Versatz übertragen
+        let ox = 0, oy = 0;
+        const a = anchors[k];
+        let rb = null, rd = Infinity;
+        for (const c of ref.blobs) { const d = Math.hypot(c.x - a.x, c.y - a.y); if (d < rd) { rd = d; rb = c; } }
+        if (rb && rd < 0.022) { const dx = a.x - rb.x, dy = a.y - rb.y; ox = lin[0] * dx + lin[1] * dy; oy = lin[2] * dx + lin[3] * dy; }
+        const bx = b.x + ox, by = b.y + oy;
+        const dist = Math.hypot(p.x - bx, p.y - by);
+        // Bildvergleich nur übernehmen, wenn er sehr sicher ist und zur Flocke passt (genauer);
+        // sonst zählt die Flockenposition (Aussehen hat sich verändert)
+        if (p.score >= 0.75 && dist <= 0.008) return p;
+        return { x: bx, y: by, score: 0.6, blob: true };
+      });
+      // Für die Bewertung nur eng getroffene Punkte zählen (Ausgleich über alle Punkte)
+      const s2 = [], d2 = [], ix = [];
+      points.forEach((p, k) => { ix.push(k); s2.push(p.x, p.y); d2.push(anchors[k].x, anchors[k].y); });
+      const Hc = fitModel('similarity', s2, d2, ix);
+      let strict = 0;
+      if (Hc) points.forEach((p, k) => {
+        const z = Hc[6] * p.x + Hc[7] * p.y + Hc[8];
+        const x = (Hc[0] * p.x + Hc[1] * p.y + Hc[2]) / z, y = (Hc[3] * p.x + Hc[4] * p.y + Hc[5]) / z;
+        if (Math.hypot(x - anchors[k].x, y - anchors[k].y) < 0.012) strict++;
+      });
+      return { type: 'locate', id: msg.id, ok: true, points, score: loc?.score ?? 0, predH: H, geoSupport: Math.min(geoSupport, strict), source };
     }
     case 'uniq': {
       if (!ref || ref.id !== msg.refId) return { type: 'uniq', values: [] };

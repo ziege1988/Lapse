@@ -138,7 +138,7 @@ function updatePrimary() {
     else b.textContent = project.aligned ? 'Weiter zur Vorschau' : 'Weiter: Bezugspunkte setzen';
   } else if (ui.view === 'points') {
     const k = project.anchors.length;
-    b.textContent = k < 2 ? `Noch ${2 - k} Punkt${k === 1 ? '' : 'e'} setzen` : `Alle ${n} Fotos ausrichten`;
+    b.textContent = k < 2 ? `Noch ${4 - k} Punkte setzen` : k < 4 ? `Ausrichten (besser ${4 - k} Punkt${4 - k === 1 ? '' : 'e'} mehr)` : `Alle ${n} Fotos ausrichten`;
     b.disabled = k < 2;
   } else if (ui.view === 'edit') b.textContent = 'Weiter zum Export';
   else b.textContent = ui.exp.format === 'zip' ? 'Einzelbilder exportieren' : ui.exp.format === 'gif' ? 'GIF erstellen' : 'Video erstellen';
@@ -484,9 +484,10 @@ function renderPointMarkers() {
   }).join('');
   const n = project.anchors.length;
   $('#pts-help').innerHTML = n === 0
-    ? '<b>Tippe auf 2–3 Stellen</b>, die in <b>allen</b> Fotos vorhanden sind und sich nicht bewegen – z. B. die ersten Haferflocken. Möglichst weit auseinander. Lapse findet sie danach in allen Fotos selbst.'
-    : n === 1 ? 'Gut. Noch mindestens <b>einen weiteren Punkt</b> antippen.'
-    : 'Prima. Optional einen weiteren Punkt setzen (genauer) – dann unten <b>„Alle Fotos ausrichten“</b>. Punkte lassen sich ziehen.';
+    ? '<b>Tippe auf 4–5 Stellen</b>, die in <b>allen</b> Fotos vorhanden sind und sich nicht bewegen – z. B. die ersten Haferflocken (nicht später hinzugefügte). Möglichst über die ganze Schale verteilt. Lapse findet sie danach in allen Fotos selbst.'
+    : n < 4 ? `Noch <b>${4 - n} Punkt${4 - n === 1 ? '' : 'e'}</b> antippen. Mit weniger als 4 Punkten kann Lapse ähnliche Flocken verwechseln.`
+    : n === 4 ? 'Gut. Ein 5. Punkt macht es noch sicherer – dann unten <b>„Alle Fotos ausrichten“</b>. Punkte lassen sich ziehen.'
+    : 'Prima – jetzt unten <b>„Alle Fotos ausrichten“</b>. Punkte lassen sich ziehen.';
   $('#pts-list').innerHTML = project.anchors.map((a, k) => {
     const t = a.uniq == null ? 'wird geprüft …' : a.uniq >= 0.5 ? 'gut erkennbare Stelle ✓'
       : a.uniqReason === 'flach' ? 'einfarbige Fläche – bitte andere Stelle wählen'
