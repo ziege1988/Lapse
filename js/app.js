@@ -7,6 +7,7 @@ import { FORMATS, findConfig, mediaRecorderType, outputSize, sourceDetail, runEx
 import { inv, mul, apply, I3 } from './geometry.js';
 import { BUILD, BUILD_DATE, isDev } from './version.js';
 import { ProjectStore } from './store.js';
+import { Capture } from './capture.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -134,6 +135,8 @@ function updateSteps() {
 function updatePrimary() {
   const b = $('#primary'), n = project.frames.length;
   b.disabled = false;
+  // Startseite: zwei Wege als Karten – unten kein zusätzlicher Knopf
+  document.body.classList.toggle('choosing', ui.view === 'photos' && !n);
   if (cropUI.on) { b.textContent = 'Übernehmen & weiter zum Export'; return; }
   if (ui.review) {
     const r = ui.review, last = reviewRemaining() <= 1;
@@ -2022,5 +2025,52 @@ $('#resume-discard').onclick = async () => {
   } catch (err) { console.error(err); }
 })();
 
+// ---------------------------------------------------------------- Zeitraffer-Aufnahme
+
+const capture = new Capture({ toast, store: db, onImport: importCaptured });
+capture.onClosed = () => checkCaptureResume();
+$('#choose-capture').onclick = () => capture.open();
+$('#choose-photos').onclick = () => $('#file').click();
+
+/** Aufgenommene Fotos übernehmen: Bezugsfoto = erste Aufnahme, Punkte aus dem Testfoto, direkt ausrichten. */
+async function importCaptured(files, anchors) {
+  if (project.frames.length) {
+    if (!confirm('Das aktuelle Projekt wird durch die Aufnahme ersetzt. Fortfahren?')) return;
+    removeFrames(project.frames.map(f => f.id));
+  }
+  showView('photos');
+  await addFiles(files);
+  if (project.frames.length < 2) { toast('Für ein Video werden mindestens 2 Aufnahmen gebraucht.', 4000); return; }
+  project.settings.refMode = 'manual';
+  project.refId = project.frames[0].id;
+  project.anchors = anchors.map(a => ({ x: a.x, y: a.y }));
+  project.resetAnchors(true);
+  syncSettingsUI();
+  scheduleSave(0);
+  if (project.anchors.length >= 2) await runAnchorAlign();
+  else showView('points');
+}
+
+async function checkCaptureResume() {
+  if (!db.available) return;
+  try {
+    const m = await db.captureMeta();
+    const card = $('#cap-resume');
+    if (!m || !m.taken) { card.hidden = true; return; }
+    const when = new Date(m.startedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+    const st = m.imported ? 'bereits übernommen' : m.status === 'running' ? 'unterbrochen' : 'abgeschlossen';
+    $('#cap-resume-info').textContent = `${m.taken} Fotos · gestartet ${when} · ${st}`;
+    card.hidden = false;
+  } catch (err) { console.error(err); }
+}
+$('#cap-resume-use').onclick = async () => { await capture.openSaved(); capture.importAll(); };
+$('#cap-resume-save').onclick = () => capture.openSaved();
+$('#cap-resume-discard').onclick = async () => {
+  if (!confirm('Gespeicherte Aufnahme aus Lapse löschen? (Bereits in Fotos gesicherte Bilder bleiben erhalten.)')) return;
+  await db.clearCaptures().catch(() => {});
+  $('#cap-resume').hidden = true;
+};
+checkCaptureResume();
+
 // Für Tests/Fehlersuche
-window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner, refresh };
+window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner, refresh, capture };

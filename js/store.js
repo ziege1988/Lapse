@@ -1,14 +1,14 @@
 // Dauerhafte Speicherung auf dem Gerät (IndexedDB): Projekt, Fotos und letztes Video.
 // Nichts verlässt das Gerät. Schützt vor Verlust, wenn iOS den Tab neu lädt.
 
-const DB_NAME = 'lapse', VERSION = 1;
+const DB_NAME = 'lapse', VERSION = 2;
 
 function open() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      for (const s of ['meta', 'frames', 'blobs', 'exports']) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s);
+      for (const s of ['meta', 'frames', 'blobs', 'exports', 'captures']) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -86,6 +86,41 @@ export class ProjectStore {
       this.saved.add(id);
     }
     return { meta, frames };
+  }
+
+  // ---- Zeitraffer-Aufnahme: jedes Foto wird sofort gesichert ----
+  async putCapture(rec) {
+    const db = await this.db();
+    const tx = db.transaction(['captures'], 'readwrite');
+    tx.objectStore('captures').put(rec, rec.key);
+    await done(tx);
+  }
+
+  async listCaptures() {
+    const db = await this.db();
+    const tx = db.transaction(['captures'], 'readonly');
+    const all = await new Promise((res, rej) => { const r = tx.objectStore('captures').getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => rej(r.error); });
+    return all.sort((a, b) => a.idx - b.idx);
+  }
+
+  async captureMeta() {
+    const db = await this.db();
+    return get(db.transaction(['meta'], 'readonly').objectStore('meta'), 'capture');
+  }
+
+  async setCaptureMeta(m) {
+    const db = await this.db();
+    const tx = db.transaction(['meta'], 'readwrite');
+    if (m) tx.objectStore('meta').put(m, 'capture'); else tx.objectStore('meta').delete('capture');
+    await done(tx);
+  }
+
+  async clearCaptures() {
+    const db = await this.db();
+    const tx = db.transaction(['captures', 'meta'], 'readwrite');
+    tx.objectStore('captures').clear();
+    tx.objectStore('meta').delete('capture');
+    await done(tx);
   }
 
   async saveExport(res) {

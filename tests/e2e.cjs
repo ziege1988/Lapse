@@ -116,6 +116,40 @@ async function plateScenario(browser, base, check) {
   check(!errors.length, `Teller-Szenario ohne Browserfehler${errors.length ? ': ' + errors.join(' | ') : ''}`);
 }
 
+// Zeitraffer-Aufnahme mit simulierter Kamera: Testfoto, Timer (3 × alle 2 s), Übernahme ins Projekt
+async function captureScenario(base, check) {
+  const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, permissions: ['camera'] });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('dialog', d => d.accept());
+  try {
+    await page.goto(base);
+    await page.evaluate(() => indexedDB.deleteDatabase('lapse'));
+    await page.reload();
+    await page.click('#choose-capture');
+    await page.waitForFunction(() => document.querySelector('#cap-video').videoWidth > 0, null, { timeout: 15000 });
+    await page.waitForTimeout(800);
+    check(await page.evaluate(() => !!document.querySelector('#hud-bl').textContent.includes('LUM')), 'Aufnahme: Kamera läuft, Messwerte werden angezeigt');
+    await page.click('#cap-primary');
+    await page.waitForFunction(() => window.__lapse.capture.p === 'check', null, { timeout: 20000 });
+    check(await page.evaluate(() => document.querySelectorAll('#cap-issues li').length >= 3), 'Aufnahme: Testfoto analysiert');
+    await page.click('#cap-primary');
+    await page.evaluate(() => { const c = window.__lapse.capture; Object.assign(c.timer, { mode: 'interval', every: 2, everyU: 's', count: 3, open: false }); c.renderTimer(); });
+    await page.click('#cap-primary');
+    await page.waitForFunction(() => window.__lapse.capture.p === 'done', null, { timeout: 30000 });
+    const n = await page.evaluate(() => window.__lapse.capture.files.length);
+    check(n === 3, `Aufnahme: ${n} von 3 Fotos im Intervall aufgenommen und gesichert`);
+    await page.click('#cap-primary');
+    await page.waitForFunction(() => window.__lapse.project.frames.length === 3 && document.querySelector('#progress').hidden && document.querySelector('#view-capture').hidden, null, { timeout: 120000 });
+    check(true, 'Aufnahme: Fotos ins Projekt übernommen');
+    check(!errors.length, `Aufnahme ohne Browserfehler${errors.length ? ': ' + errors.join(' | ') : ''}`);
+  } finally {
+    await b.close();
+  }
+}
+
 (async () => {
   const srv = await serve();
   const base = `http://localhost:${srv.address().port}/index.html`;
@@ -179,6 +213,7 @@ async function plateScenario(browser, base, check) {
       check(sized <= target * 1e6 * 1.05, `Zielgröße eingehalten (Ziel ${target} MB, Ergebnis ${(sized / 1e6).toFixed(2)} MB; Anzeige: ${est.replace(/\s+/g, ' ')})`);
     }
     await plateScenario(browser, base, check);
+    await captureScenario(base, check);
     check(!errors.length, `keine Browserfehler${errors.length ? ': ' + errors.join(' | ') : ''}`);
   } finally {
     await browser.close();

@@ -23,6 +23,22 @@ Während eines längeren Exports App geöffnet und Bildschirm an lassen (Lapse v
 
 ## Funktionen im Detail
 
+### Zeitraffer aufnehmen (Kamera)
+
+Auf der Startseite „Zeitraffer aufnehmen“ wählen. Ablauf in vier Schritten:
+
+1. **Bild einrichten** – Live-Kamerabild mit Raster, Hilfskreis (z. B. für eine Petrischale), Fadenkreuz und Wasserwaage. Messwerte: Helligkeit, Clipping (über-/unterbelichtete Anteile), RGB-Balance, Schärfe-Index, Bewegung, Neigung sowie ein RGB-Histogramm. Zoom, Belichtungskorrektur, Licht und das Fixieren von Belichtung/Fokus erscheinen nur, wenn die Kamera das im Browser anbietet.
+2. **Testfoto prüfen** – Lapse bewertet Belichtung, überstrahlte Stellen, Schärfe, Ruhe, Lage und Farbstich und schlägt Korrekturen vor (bei unterstützter Belichtungskorrektur direkt per Knopf). Gleichzeitig werden bis zu 5 markante, verteilte **Bezugspunkte** vorgeschlagen (z. B. Haferflocken auf hellem Untergrund). Antippen entfernt einen Punkt, Tippen auf eine freie Stelle setzt einen neuen.
+3. **Timer** – „Alle … eine Aufnahme“ (Intervall in s/min/h und Anzahl oder „bis ich stoppe“) oder „Anzahl in Zeitraum“. Angezeigt werden Intervall, Dauer, voraussichtliches Ende, Videolänge bei 30 fps und der Speicherbedarf.
+4. **Aufnahme** – Zähler, Countdown zur nächsten Aufnahme, Laufzeit, verpasste Aufnahmen. Die Bezugspunkte bleiben als Ringe eingeblendet; verrutscht die Kamera, sieht man es sofort. „Abdunkeln“ schaltet die Anzeige schwarz (spart Strom, kein Licht aufs Motiv).
+
+Jedes Foto wird sofort in Lapse auf dem Gerät gespeichert. Danach: **„Weiter: Ausrichten & Video“** (erste Aufnahme = Bezugsfoto, Punkte aus dem Testfoto, Ausrichtung startet direkt) und/oder **„In Fotos sichern“**.
+
+Wichtig auf dem iPhone (Grenzen von Safari, nicht von Lapse):
+- **Lapse muss im Vordergrund bleiben und das Display an.** Im Hintergrund oder bei gesperrtem iPhone liefert Safari kein Kamerabild – diese Aufnahmen werden als „verpasst“ gezählt. Lapse hält das Display wach (Wake Lock); zur Sicherheit *Einstellungen › Anzeige & Helligkeit › Automatische Sperre › Nie* wählen. Für lange Aufnahmen Ladekabel anschließen.
+- **Fotomediathek:** Webseiten dürfen nicht selbstständig in „Fotos“ speichern. „In Fotos sichern“ öffnet das Teilen-Menü → „Bilder sichern“ (bei vielen Fotos in Teilen à 20).
+- **Auflösung:** Das Kamerabild im Browser ist ein Videobild. Lapse fordert die höchste Auflösung an; was das Gerät liefert, steht oben links (RES).
+
 ### Ausrichtung
 | Einstellung | Wirkung |
 |---|---|
@@ -110,6 +126,8 @@ Lokal testen: `python3 -m http.server 8000` im Projektordner, dann `http://local
 index.html            Oberfläche
 css/app.css           Gestaltung (mobil zuerst, Safe-Area für iPhone)
 js/app.js             Steuerung der Oberfläche
+js/capture.js         Zeitraffer-Aufnahme (Kamera, Messwerte, Testfoto, Timer)
+css/capture.css       Gestaltung der Aufnahme-Ansicht
 js/project.js         Projektmodell: Transformationen, Zuschnitt, Farbangleich, Zeitplan, Qualität
 js/pipeline.js        Import, Analyse, Ausrichtung, Messung, präzise Nachberechnung
 js/features.js        Merkmalserkennung und Matching
@@ -130,7 +148,7 @@ Tests: `node tests/align.test.mjs` und `node tests/e2e.cjs` (benötigt Playwrigh
 
 ## Bekannte Grenzen
 
-- **Speicher:** Im Arbeitsspeicher liegen nur kleine Vorschaubilder; trotzdem kann iOS den Tab bei sehr vielen Fotos oder im Hintergrund neu laden – dann ist das Projekt verloren (noch keine Speicherung des Projekts).
+- **Speicher:** Projekt, Fotos, Aufnahmen und das letzte Video werden auf dem Gerät gespeichert (IndexedDB) und nach einem Neuladen angeboten. Sehr lange Aufnahmen in voller Auflösung brauchen viel Platz – der Timer zeigt den Bedarf vorab.
 - **HEIC:** Die iOS-Fotoauswahl liefert Fotos in der Regel als JPEG. Falls doch HEIC ankommt, dekodiert Safari es ab iOS 17; ältere Versionen können solche Dateien ablehnen.
 - **Aufnahmezeit** wird aus JPEG-EXIF gelesen. Fehlt sie bei einzelnen Fotos, sortiert Lapse nach Dateiname.
 - Starke Bewegungen im Bild (Menschenmengen, Wellen) bei wenig fester Struktur können die Ausrichtung erschweren – dann „Präzise“ oder Aufnahmeart „Stativ“ wählen.
