@@ -243,9 +243,12 @@ export class Project {
       else if (a.method === 'anker') {
         if (a.used < Math.min(2, this.anchors.length)) { q = 'bad'; note = 'Zu wenige Ankerpunkte gefunden'; }
         else if (a.anchorScore < 0.55) { q = 'warn'; note = 'Ankerpunkt unsicher gefunden – bitte prüfen'; }
+        else if ((f.anchorPts || []).some(p => p?.manual && !p.snapped && !p.pinned) && a.used <= 2) { q = 'warn'; note = 'Nur ungefähr getippt – Punkte mit der Lupe genau setzen (ziehen)'; }
         else if (a.outliers) { q = 'warn'; note = 'Ein Ankerpunkt passt nicht zu den anderen – bitte prüfen'; }
       } else if (a.anchorsRejected) {
         q = 'warn'; note = 'Ankerpunkte passen nicht zum Bild (bewegt sich etwas?) – automatische Ausrichtung beibehalten';
+      } else if (a.ambiguous && !a.confirmedByAnchors) {
+        q = 'warn'; note = 'Drehung nicht eindeutig (z. B. runde Schale) – bitte mit Fixpunkten ausrichten';
       } else if (a.ncc != null) {
         // Flächenvergleich mit der Referenz (1 = identisch)
         if (a.ncc < 0.6) { q = 'bad'; note = 'Geringe Übereinstimmung mit der Referenz'; }
@@ -293,12 +296,33 @@ export class Project {
   anchorFit(f) {
     const pts = f.anchorPts || [];
     const cand = [];
-    pts.forEach((p, k) => { if (p && this.anchors[k] && (p.manual || p.score >= 0.3)) cand.push(k); });
+    // Mit Handpunkten zählen automatisch gefundene nur, wenn sie sicher sind (verwechselbare Flocken)
+    const hasManual = pts.some(p => p?.manual);
+    const minScore = hasManual ? 0.55 : 0.3;
+    pts.forEach((p, k) => { if (p && this.anchors[k] && !p.pred && (p.manual || p.score >= minScore)) cand.push(k); });
     for (const p of pts) if (p) p.outlier = false;
     if (!cand.length) return null;
     const src = [], dst = [];
     pts.forEach((p, k) => { src.push(p?.x ?? 0, p?.y ?? 0); dst.push(this.anchors[k]?.x ?? 0, this.anchors[k]?.y ?? 0); });
     const resid = (H, k) => { const [x, y] = apply(H, src[2 * k], src[2 * k + 1]); return Math.hypot(x - dst[2 * k], y - dst[2 * k + 1]); };
+    // Von Hand getippte Punkte geben die grobe Lage vor (Finger: ca. ±3 %). Automatisch gefundene
+    // Punkte, die dem widersprechen, sind verwechselte Stellen (z. B. später hinzugefügte Flocken).
+    const manualIdx = cand.filter(k => pts[k].manual);
+    if (manualIdx.length >= 2) {
+      const Htap = fitModel('similarity', src, dst, manualIdx);
+      if (Htap) for (let i = cand.length - 1; i >= 0; i--) {
+        const k = cand[i];
+        if (!pts[k].manual && resid(Htap, k) > 0.035) { cand.splice(i, 1); pts[k].outlier = true; }
+      }
+    }
+    // Ungenaue Fingertipps (nicht eingerastet) nur nutzen, solange es nicht genug sichere Punkte gibt
+    const sure = k => pts[k].manual ? (pts[k].snapped || pts[k].pinned) : pts[k].score >= 0.55;
+    if (cand.filter(sure).length >= 3) {
+      for (let i = cand.length - 1; i >= 0; i--) {
+        const p = pts[cand[i]];
+        if (p.manual && !p.snapped && !p.pinned && p.tapX != null) cand.splice(i, 1);
+      }
+    }
     // Konsens: welche Punkte passen geometrisch zusammen? (Ähnlichkeit aus je zwei Punkten)
     // Punkte auf sich bewegenden/verändernden Dingen fallen dabei heraus.
     const TOL = 0.01; // ca. 1 % der langen Bildkante (Rest übernimmt der Flächenvergleich)

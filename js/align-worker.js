@@ -10,7 +10,7 @@
 
 import { detect, match } from './features.js';
 import { ransac, I3, mul, inv, isPlausible } from './geometry.js';
-import { pyramid, alignDirect, score } from './direct.js';
+import { pyramid, alignDirect, score, roiPyramid } from './direct.js';
 import { trackAnchors, anchorUniqueness } from './anchors.js';
 
 const store = new Map(); // id -> { n, xy (kanonisch), desc, res }
@@ -83,7 +83,7 @@ function handle(msg) {
         inits.push(diag(mImg / ref.m)); // gleiche Lage
         const dmodel = model === 'translation' ? 'translation' : model === 'similarity' ? 'affine' : 'homography';
         const d = alignDirect(ref.pyr, pyr, { model: dmodel, inits, search: true });
-        if (d) cands.push({ W: d.W, from: 'flächig', r: d.r, cover: d.cover });
+        if (d) cands.push({ W: d.W, from: 'flächig', r: d.r, cover: d.cover, ambiguous: d.ambiguous });
       }
       cands.sort((a, b) => b.r - a.r);
       const best = cands[0];
@@ -92,6 +92,7 @@ function handle(msg) {
       if (!H || !isPlausible(H, 1)) return { type: 'align', id, refId, ok: false, matches: feat.matches || 0, ncc: best.r, method: best.from };
       return {
         type: 'align', id, refId, ok: best.r >= 0.5, H, ncc: best.r, method: best.from,
+        ambiguous: !!cands.find(c => c.ambiguous),
         inliers: feat.ok ? feat.inliers : 0, total: feat.total || feat.matches || 0, rms: feat.ok ? feat.rms : 0,
       };
     }
@@ -99,7 +100,7 @@ function handle(msg) {
       // Ankerpunkte in einem Bild suchen (siehe anchors.js)
       if (!ref || ref.id !== msg.refId) return { type: 'track', id: msg.id, ok: false };
       const pyr = pyramid(new Uint8Array(msg.gray), msg.w, msg.h);
-      const res = trackAnchors(ref, { pyr, m: Math.max(msg.w, msg.h) }, msg.anchors, msg.predH);
+      const res = trackAnchors(ref, { pyr, m: Math.max(msg.w, msg.h) }, msg.anchors, msg.predH, { wide: !!msg.wide });
       return { type: 'track', id: msg.id, ok: true, points: res };
     }
     case 'refineAnchored': {
@@ -110,16 +111,19 @@ function handle(msg) {
       const mImg = Math.max(msg.w, msg.h);
       const pyr = pyramid(new Uint8Array(msg.gray), msg.w, msg.h);
       const lv = Math.min(1, ref.pyr.length - 1);
+      // Nur im Bereich der Fixpunkte vergleichen (konvexe Hülle, um 60 % vergrößert)
+      const roi = msg.roi && msg.roi.length >= 3 ? roiPyramid(ref.pyr, msg.roi.map(([x, y]) => [x * ref.m, y * ref.m])) : null;
       let best = null;
       msg.hyps.forEach((h, i) => {
         const W = toPixelW(h.H, ref.m, mImg);
         if (!W) return;
-        const r = score(ref.pyr, pyr, W, lv).r;
+        const r = score(ref.pyr, pyr, W, lv, roi).r;
         if (!best || r > best.r) best = { i, W, r, pairs: h.pairs };
       });
       if (!best) return { type: 'refineAnchored', ok: false };
-      const dmodel = msg.model === 'translation' ? 'translation' : msg.model === 'similarity' ? 'affine' : 'homography';
-      const d = alignDirect(ref.pyr, pyr, { model: dmodel, inits: [best.W], search: false });
+      // Im begrenzten Bereich keine frei schwingende Perspektive (würde nach außen hin übertreiben)
+      const dmodel = msg.model === 'translation' ? 'translation' : (roi || msg.model === 'similarity') ? 'affine' : 'homography';
+      const d = alignDirect(ref.pyr, pyr, { model: dmodel, inits: [best.W], search: false, roi });
       let H = d && toCanonH(d.W, ref.m, mImg), ncc = d?.r ?? null;
       let worst = Infinity;
       if (H && isPlausible(H, 1)) {
@@ -131,7 +135,7 @@ function handle(msg) {
         }
       }
       // Verfeinerung nur übernehmen, wenn sie flächig nicht schlechter ist und die Punkte grob passen
-      const baseR = score(ref.pyr, pyr, best.W, 0).r;
+      const baseR = score(ref.pyr, pyr, best.W, 0, roi).r;
       const refined = worst <= msg.tolPx && ncc != null && ncc >= baseR - 0.005;
       if (!refined) { H = msg.hyps[best.i].H; ncc = baseR; }
       return { type: 'refineAnchored', ok: true, idx: best.i, H, ncc, refined, worst };

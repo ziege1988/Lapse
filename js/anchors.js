@@ -50,7 +50,7 @@ function nccAt(L, T, cx, cy, A) {
  * predH: Vorhersage Bild->Referenz (kanonisch) oder null.
  * Rückgabe: [{ x, y (kanonisch im Bild), score }]
  */
-export function trackAnchors(ref, img, anchors, predH) {
+export function trackAnchors(ref, img, anchors, predH, { wide = false } = {}) {
   // Vorhersage als Pixelabbildung Ref(Ebene 0) -> Bild(Ebene 0)
   let W = diag(img.m / ref.m);
   if (predH) { const Hi = inv(predH); if (Hi) W = mul(diag(img.m), mul(Hi, diag(1 / ref.m))); }
@@ -71,7 +71,9 @@ export function trackAnchors(ref, img, anchors, predH) {
     const Tc = template(Rc, rx / sc, ry / sc, rT, 1);
     if (!Tc || Tc.flat) { out.push({ x: px / img.m, y: py / img.m, score: 0, reason: Tc ? 'flach' : 'rand' }); continue; }
     const search = Math.round((predH ? 0.06 : 0.2) * Math.max(Ic.w, Ic.h));
-    const rots = predH ? [-4, 0, 4] : [-10, -5, 0, 5, 10], scales = predH ? [0.95, 1, 1.05] : [0.88, 1, 1.12];
+    // wide: Vorhersage aus ungenauen Fingertipps -> mehr Drehungs-/Zoomvarianten
+    const rots = !predH ? [-10, -5, 0, 5, 10] : wide ? [-9, -6, -3, 0, 3, 6, 9] : [-4, 0, 4];
+    const scales = !predH ? [0.88, 1, 1.12] : wide ? [0.88, 0.94, 1, 1.06, 1.12] : [0.95, 1, 1.05];
     let best = { r: -2 };
     const step = search > 16 ? 2 : 1;
     for (const rot of rots) for (const s of scales) {

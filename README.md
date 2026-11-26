@@ -41,7 +41,9 @@ Beide Ergebnisse werden mit derselben Kennzahl bewertet (Übereinstimmung mit de
 „Ankerpunkte“ über dem Filmstreifen (oder beim einzelnen Foto „Mit Ankerpunkten ausrichten“):
 1. Im **Referenzbild** 2–4 markante Stellen antippen, die sich in allen Fotos nicht verändern – z. B. eine Ecke, ein Muster oder ein Fleck der Unterlage, möglichst weit auseinander. Lapse bewertet jede Stelle sofort („eindeutig ✓“ oder „nicht eindeutig – besser eine Ecke wählen“).
 2. **Automatisch:** „In allen Fotos suchen“ – Lapse findet die Punkte in jedem Foto, prüft, welche zueinander passen, und verfeinert per Flächenvergleich. Unsichere Funde werden markiert („Nächstes unsicheres Foto“).
-3. **Von Hand:** In jedem Foto einfach nacheinander auf die Stellen von Punkt 1, 2, 3 … tippen (kleines Referenzbild zeigt, wo sie hingehören). Lapse springt automatisch zum nächsten Punkt. Ziehen mit Lupe für Feinarbeit. Funktioniert auch ganz ohne automatische Suche.
+3. **Von Hand (Fixpunkte):** In jedem Foto **zwei** der Stellen antippen (kleines Referenzbild zeigt, wo sie hingehören). Daraus erkennt Lapse Drehung (beliebig, auch 90°/180°), Zoom und Lage, sucht die übrigen Punkte selbst und rastet die Tipps exakt ein. Danach Feinausrichtung per Flächenvergleich nur im Bereich der Fixpunkte (der Untergrund stört nicht). Ziehen mit Lupe für Feinarbeit; gezogene Punkte bleiben genau dort. Funktioniert ganz ohne automatische Suche.
+
+Typischer Fall: **Schale/Petrischale mit wachsendem Inhalt** (z. B. Schleimpilz). Die runde Form lässt die Drehung offen – Lapse meldet dann „Drehung nicht eindeutig“. Fixpunkte auf Dingen setzen, die in allen Fotos vorhanden sind und sich nicht bewegen (z. B. die ersten Haferflocken, nicht später hinzugefügte).
 4. „Fertig“ – Zuschnitt, Helligkeit und Farbe werden für alle Fotos neu berechnet.
 
 Sicherheitsnetz: Punkte auf sich verändernden Dingen (z. B. schmelzende Butter) werden erkannt („passt nicht zu den anderen Punkten“); ist die automatische Ausrichtung nachweislich besser, bleibt sie – außer du hast Punkte von Hand gesetzt.

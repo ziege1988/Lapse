@@ -57,6 +57,9 @@ function ncc(T, A, mask, n, step = 1, w = 0) {
   return { r, cover: cnt / n * step * step };
 }
 
+/** Drehwinkel einer Abbildung (Bogenmaß, -π..π). */
+export const angleOf = W => Math.atan2(W[3] - W[1], W[0] + W[4]);
+
 const DOF = { translation: 2, similarity: 4, affine: 6, homography: 8 };
 
 /** Kleine Änderung ΔW (in normierten Koordinaten) als Matrix. */
@@ -100,7 +103,7 @@ function solveSym(A, b, n) {
 }
 
 /** Gauß-Newton auf einer Ebene. W: Ref-Pixel -> Bild-Pixel (dieser Ebene). */
-function refineLevel(T, I, L, W, model, iters) {
+function refineLevel(T, I, L, W, model, iters, roi = null) {
   const { w, h } = L, n = w * h;
   const cx = w / 2, cy = h / 2, sn = Math.max(w, h) / 2;
   const N = [1 / sn, 0, -cx / sn, 0, 1 / sn, -cy / sn, 0, 0, 1], Ni = [sn, 0, cx, 0, sn, cy, 0, 0, 1];
@@ -112,8 +115,11 @@ function refineLevel(T, I, L, W, model, iters) {
     warpInto(I.img, I.w, I.h, W, w, h, Iw, mask);
     // Helligkeit: Iw ≈ α·T + β, über kleinste Quadrate
     let sT = 0, sI = 0, sTT = 0, sTI = 0, cnt = 0;
+    if (roi) for (let i = 0; i < n; i++) if (!roi[i]) mask[i] = 0; // nur im Bereich der Fixpunkte
+    let nRoi = n;
+    if (roi) { nRoi = 0; for (let i = 0; i < n; i++) nRoi += roi[i]; }
     for (let i = 0; i < n; i++) if (mask[i]) { sT += T[i]; sI += Iw[i]; sTT += T[i] * T[i]; sTI += T[i] * Iw[i]; cnt++; }
-    if (cnt < n * 0.2) return { W, ok: false };
+    if (cnt < nRoi * 0.2) return { W, ok: false };
     const varT = sTT - sT * sT / cnt;
     const alpha = varT > 1e-6 ? (sTI - sT * sI / cnt) / varT : 1, beta = (sI - alpha * sT) / cnt;
     // Residuenstreuung für robuste Gewichte
@@ -155,12 +161,40 @@ function refineLevel(T, I, L, W, model, iters) {
 }
 
 /** Bewertet eine Abbildung (Ref-Pixel -> Bild-Pixel, Ebene 0) per NCC auf einer Ebene. */
-export function score(refPyr, imgPyr, W0, level = 0) {
-  const L = refPyr[Math.min(level, refPyr.length - 1)], I = imgPyr[Math.min(level, imgPyr.length - 1)];
+export function score(refPyr, imgPyr, W0, level = 0, roi = null) {
+  const lv = Math.min(level, refPyr.length - 1);
+  const L = refPyr[lv], I = imgPyr[Math.min(level, imgPyr.length - 1)];
   const W = toLevel(W0, L.s);
   const n = L.w * L.h, Iw = new Float32Array(n), mask = new Uint8Array(n);
   warpInto(I.img, I.w, I.h, W, L.w, L.h, Iw, mask);
+  if (roi?.[lv]) { const R = roi[lv]; let nr = 0; for (let i = 0; i < n; i++) { if (!R[i]) mask[i] = 0; nr += R[i]; } const res = ncc(L.img, Iw, mask, n); return res.cover * n >= nr * 0.25 ? { r: res.r === -1 ? nccAll(L.img, Iw, mask, n) : res.r, cover: res.cover } : { r: -1, cover: res.cover }; }
   return ncc(L.img, Iw, mask, n);
+}
+
+function nccAll(T, A, mask, n) {
+  let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, c = 0;
+  for (let i = 0; i < n; i++) if (mask[i]) { const p = T[i], q = A[i]; sa += p; sb += q; saa += p * p; sbb += q * q; sab += p * q; c++; }
+  if (c < 16) return -1;
+  const va = saa - sa * sa / c, vb = sbb - sb * sb / c;
+  return va > 1e-6 && vb > 1e-6 ? (sab - sa * sb / c) / Math.sqrt(va * vb) : -1;
+}
+
+/** Bereichsmaske (konvexes Polygon in Pixeln der Ebene 0) für alle Pyramidenebenen. */
+export function roiPyramid(refPyr, poly) {
+  return refPyr.map(L => {
+    const m = new Uint8Array(L.w * L.h), P = poly.map(([x, y]) => [x / L.s, y / L.s]);
+    let area = 0; for (let i = 0; i < P.length; i++) { const [a, b] = P[i], [c, d] = P[(i + 1) % P.length]; area += a * d - c * b; }
+    const sg = area >= 0 ? 1 : -1;
+    for (let y = 0; y < L.h; y++) for (let x = 0; x < L.w; x++) {
+      let inside = true;
+      for (let i = 0; i < P.length && inside; i++) {
+        const [a, b] = P[i], [c, d] = P[(i + 1) % P.length];
+        if (((c - a) * (y - b) - (d - b) * (x - a)) * sg < 0) inside = false;
+      }
+      m[y * L.w + x] = inside ? 1 : 0;
+    }
+    return m;
+  });
 }
 
 /** Grobe Suche auf der kleinsten Ebene: Drehung × Zoom × Verschiebung. */
@@ -186,8 +220,8 @@ function coarseSearch(refPyr, imgPyr, base, { rots, scales, shift }) {
   // Mehrere unterschiedliche Kandidaten behalten
   const out = [];
   for (const c of cands) {
-    if (out.length >= 4) break;
-    if (out.every(o => Math.hypot(o.W[2] - c.W[2], o.W[5] - c.W[5]) > 3 * L.s || Math.abs(o.W[1] - c.W[1]) > 0.04)) out.push(c);
+    if (out.length >= 6) break;
+    if (out.every(o => Math.hypot(o.W[2] - c.W[2], o.W[5] - c.W[5]) > 3 * L.s || Math.abs(angleOf(o.W) - angleOf(c.W)) > 0.15)) out.push(c);
   }
   return out;
 }
@@ -197,15 +231,18 @@ function coarseSearch(refPyr, imgPyr, base, { rots, scales, shift }) {
  * inits: Liste von Startabbildungen (Ref-Pixel -> Bild-Pixel, Ebene 0).
  * Rückgabe: { W (Ref->Bild), r (NCC 0..1), cover (Überdeckung) } oder null.
  */
-export function alignDirect(refPyr, imgPyr, { model = 'homography', inits = [], search = true } = {}) {
-  const starts = inits.map(W => ({ W, r: score(refPyr, imgPyr, W, refPyr.length - 1).r }));
+export function alignDirect(refPyr, imgPyr, { model = 'homography', inits = [], search = true, roi = null } = {}) {
+  const starts = inits.map(W => ({ W, r: score(refPyr, imgPyr, W, refPyr.length - 1).r, init: true }));
   if (search) {
-    const base = I3();
-    starts.push(...coarseSearch(refPyr, imgPyr, base, { rots: [-12, -6, 0, 6, 12], scales: [0.85, 1, 1.15], shift: 0.2 }));
+    // volle Drehung (Hoch-/Querformat gemischt, gedrehte Schale) in 20°-Schritten
+    const rots = []; for (let a = -160; a <= 180; a += 20) rots.push(a);
+    starts.push(...coarseSearch(refPyr, imgPyr, I3(), { rots, scales: [0.8, 1, 1.25], shift: 0.2 }));
   }
   starts.sort((a, b) => b.r - a.r);
-  let best = null;
-  for (const st of starts.slice(0, 4)) {
+  // Startwerte aus dem Aufrufer immer verfeinern, dazu die besten Suchergebnisse
+  const chosen = [...starts.filter(s => s.init), ...starts.filter(s => !s.init).slice(0, 5)];
+  const finals = [];
+  for (const st of chosen) {
     let W = st.W;
     // grob -> fein; einfache Modelle zuerst, damit die Suche stabil bleibt
     for (let lv = refPyr.length - 1; lv >= 0; lv--) {
@@ -213,15 +250,24 @@ export function alignDirect(refPyr, imgPyr, { model = 'homography', inits = [], 
       let Wl = toLevel(W, L.s);
       const coarse = lv >= refPyr.length - 2;
       const m = coarse && model !== 'translation' ? 'similarity' : model;
-      const res = refineLevel(L.img, I, L, Wl, m, lv === 0 ? 12 : 20);
+      const res = refineLevel(L.img, I, L, Wl, m, lv === 0 ? 12 : 20, roi ? roi[lv] : null);
       if (!res.ok) break;
       Wl = res.W;
       W = fromLevel(Wl, L.s);
     }
-    const sc = score(refPyr, imgPyr, W, 0);
-    if (!best || sc.r > best.r) best = { W, r: sc.r, cover: sc.cover };
+    const sc = score(refPyr, imgPyr, W, 0, roi);
+    finals.push({ W, r: sc.r, cover: sc.cover });
   }
-  return best;
+  finals.sort((a, b) => b.r - a.r);
+  const best = finals[0];
+  if (!best) return null;
+  // Mehrdeutige Drehung (z. B. runde Schale): ein deutlich anders gedrehtes Ergebnis passt fast gleich gut
+  const a0 = angleOf(best.W);
+  const rival = finals.find(f => {
+    let d = Math.abs(angleOf(f.W) - a0); if (d > Math.PI) d = 2 * Math.PI - d;
+    return d > 0.14 && f.r >= best.r - 0.03;
+  });
+  return { ...best, ambiguous: !!rival, rivalR: rival?.r };
 }
 
 export { inv };

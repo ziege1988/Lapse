@@ -261,12 +261,16 @@ body.anchor-mode .actionbar { display: none; }
 body.anchor-mode { padding-bottom: calc(16px + var(--safe-b)); }
 .anchor-layer { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
 .anchor-pt {
-  position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%;
-  border: 2.5px solid #fff; background: rgba(0,0,0,.35); color: #fff; font: 700 13px/25px -apple-system, sans-serif; text-align: center;
-  box-shadow: 0 0 0 1.5px rgba(0,0,0,.6); pointer-events: none;
+  position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+  border: 2px solid #fff; background: transparent; pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.7), inset 0 0 0 1px rgba(0,0,0,.7);
 }
-.anchor-pt::after { content: ""; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px; background: currentColor; border-radius: 50%; display: none; }
-.anchor-pt.good { border-color: var(--good); }
+.anchor-pt::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.8); }
+.anchor-pt span {
+  position: absolute; left: 17px; top: -15px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: rgba(0,0,0,.75); color: #fff; font: 700 11px/17px -apple-system, sans-serif; text-align: center;
+}
+.anchor-pt.good { border-color: var(--good); } .anchor-pt.good::after { background: var(--good); }
 .anchor-pt.warn { border-color: var(--warn); }
 .anchor-pt.bad { border-color: var(--bad); }
 .anchor-pt.manual { border-color: #6cb6ff; }

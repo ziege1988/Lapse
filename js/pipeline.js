@@ -2,7 +2,7 @@
 
 import { readCaptureTime } from './exif.js';
 import { decode, sizeOf, release, scaleTo, toBlob, grayOf, freeCanvas, makeCanvas } from './images.js';
-import { mul, I3 } from './geometry.js';
+import { mul, I3, fitModel } from './geometry.js';
 import { newManual, statsOf } from './project.js';
 import { Renderer } from './renderer.js';
 
@@ -180,7 +180,7 @@ async function alignOne(project, aligner, f, neighbor, { thorough = false } = {}
     type: 'align', id: f.id, refId: ref.id, model, gray: g.gray.buffer, w: g.w, h: g.h, inits, thorough,
     iterations: thorough ? 5000 : undefined, threshPx: thorough ? 2.0 : undefined,
   }, [g.gray.buffer]);
-  if (r.ok) return { ok: true, H: r.H, inliers: r.inliers, total: r.total, rms: r.rms, ncc: r.ncc, method: r.method, via: null };
+  if (r.ok) return { ok: true, H: r.H, inliers: r.inliers, total: r.total, rms: r.rms, ncc: r.ncc, method: r.method, ambiguous: r.ambiguous, via: null };
   // Rückfall: Merkmale zum Nachbarbild, verkettet
   if (neighbor && neighbor !== ref && neighbor.align?.ok) {
     const c = await aligner.call({ type: 'align', id: f.id, refId: neighbor.id, model });
@@ -228,6 +228,21 @@ export async function anchorUniqueness(project, aligner) {
  * Übernahme nur, wenn sie flächig nicht schlechter ist und die Punkte grob passen
  * (gefundene Punkte: 4 % der Bildgröße, von Hand gesetzte: 1 %).
  */
+/** Bereich der Fixpunkte im Referenzbild: konvexe Hülle, um 60 % um den Schwerpunkt vergrößert. */
+export function anchorRegion(project) {
+  const P = project.anchors.map(a => [a.x, a.y]);
+  if (P.length < 3) return null;
+  const pts = P.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], hi = [];
+  for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (const p of pts.slice().reverse()) { while (hi.length >= 2 && cross(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
+  const hull = lo.slice(0, -1).concat(hi.slice(0, -1));
+  if (hull.length < 3) return null;
+  const cx = hull.reduce((a, p) => a + p[0], 0) / hull.length, cy = hull.reduce((a, p) => a + p[1], 0) / hull.length;
+  return hull.map(([x, y]) => [cx + (x - cx) * 1.6, cy + (y - cy) * 1.6]);
+}
+
 export async function refineAnchored(project, aligner, f) {
   const a = f.align;
   if (!a?.ok || a.method !== 'anker' || f.id === project.refId || !f.anchorHyps?.length) return false;
@@ -239,7 +254,7 @@ export async function refineAnchored(project, aligner, f) {
   const g = await grayFromPreview(f);
   const manual = f.anchorPts.some(p => p?.manual);
   const tolPx = (manual ? 0.01 : 0.04) * DIRECT_RES;
-  const r = await aligner.call({ type: 'refineAnchored', refId: project.refId, gray: g.gray.buffer, w: g.w, h: g.h, hyps, model: project.settings.model, tolPx }, [g.gray.buffer]);
+  const r = await aligner.call({ type: 'refineAnchored', refId: project.refId, gray: g.gray.buffer, w: g.w, h: g.h, hyps, model: project.settings.model, tolPx, roi: anchorRegion(project) }, [g.gray.buffer]);
   if (f.align !== a || !r.ok) return false; // inzwischen geändert (z. B. erneut gezogen)
   // Passt die automatische Ausrichtung flächig klar besser, bleibt sie – außer der Nutzer
   // hat Punkte von Hand gesetzt (dann gilt seine Vorgabe).
@@ -250,6 +265,51 @@ export async function refineAnchored(project, aligner, f) {
   }
   project.chooseAnchorHyp(f, r.idx, r.H, r.ncc);
   f.align.refined = r.refined;
+  return true;
+}
+
+/**
+ * Fixpunkte von Hand: Ab zwei getippten Punkten ergibt sich Drehung (beliebig, auch 90°/180°),
+ * Zoom und Lage. Damit werden die übrigen Punkte gesucht und getippte Punkte auf die exakte
+ * Stelle eingerastet (Fingerungenauigkeit). Gezogene Punkte („pinned“) bleiben, wo sie sind.
+ */
+export async function snapFrameAnchors(project, aligner, f) {
+  const pts = f.anchorPts || [];
+  const man = [];
+  pts.forEach((p, k) => { if (p?.manual && project.anchors[k]) man.push(k); });
+  if (man.length < 2) return false;
+  const src = [], dst = [];
+  pts.forEach((p, k) => { src.push(p?.x ?? 0, p?.y ?? 0); dst.push(project.anchors[k]?.x ?? 0, project.anchors[k]?.y ?? 0); });
+  const Hs = fitModel('similarity', src, dst, man);
+  if (!Hs) return false;
+  await setReference(project, aligner);
+  const g = await grayFromPreview(f);
+  const anchors = project.anchors.map(a => ({ x: a.x, y: a.y }));
+  // Zwei Durchgänge: 1. grob (Vorhersage aus Fingertipps, weite Toleranz),
+  // 2. genau (Vorhersage aus den sicher gefundenen Punkten)
+  let pred = Hs;
+  for (let pass = 0; pass < 2; pass++) {
+    const gray = g.gray.slice().buffer;
+    const r = await aligner.call({ type: 'track', id: f.id, refId: project.refId, gray, w: g.w, h: g.h, anchors, predH: pred, wide: pass === 0 }, [gray]);
+    if (!r.ok || f.anchorPts !== pts) return false;
+    r.points.forEach((q, k) => {
+      const p = pts[k];
+      if (p?.manual) {
+        if (p.pinned) return;
+        const tx = p.tapX ?? p.x, ty = p.tapY ?? p.y;
+        // einrasten, wenn sicher gefunden und nahe am Tipp (≤ 3 % der langen Bildkante)
+        if (q.score >= 0.45 && Math.hypot(q.x - tx, q.y - ty) <= 0.03) pts[k] = { ...p, x: q.x, y: q.y, tapX: tx, tapY: ty, snapped: true, snapScore: q.score };
+        else pts[k] = { ...p, x: tx, y: ty, tapX: tx, tapY: ty, snapped: false };
+      } else {
+        pts[k] = { x: q.x, y: q.y, score: q.score, manual: false };
+      }
+    });
+    project.applyAnchors(f);
+    if (!f.align?.ok) break;
+    pred = f.align.H;
+  }
+  // Feinausrichtung per Flächenvergleich im Bereich der Fixpunkte (Drehung kommt aus den Punkten)
+  if (f.align?.ok && f.align.method === 'anker') await refineAnchored(project, aligner, f);
   return true;
 }
 

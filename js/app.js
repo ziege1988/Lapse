@@ -1,7 +1,7 @@
 // Lapse – Steuerung der Oberfläche.
 
 import { Project, newManual, DEFAULT_SETTINGS } from './project.js';
-import { Aligner, importFiles, sortFrames, alignAll, refineFrame, StatsEngine, anchorUniqueness, trackAllAnchors, refineAnchored } from './pipeline.js';
+import { Aligner, importFiles, sortFrames, alignAll, refineFrame, StatsEngine, anchorUniqueness, trackAllAnchors, refineAnchored, snapFrameAnchors } from './pipeline.js';
 import { Player } from './player.js';
 import { FORMATS, findConfig, mediaRecorderType, outputSize, sourceDetail, runExport, exportPlan, qualityName } from './export.js';
 import { inv, mul, apply, I3 } from './geometry.js';
@@ -587,7 +587,7 @@ const ancFrames = () => project.frames.filter(f => f.featRes > 0);
 const canonToPct = (f, x, y) => { const m = Math.max(f.w, f.h); return [x * m / f.w * 100, y * m / f.h * 100]; };
 
 function openAnchors(frame = project.ref) {
-  if (!project.aligned || !player) return;
+  if (!project.aligned || !player) { toast('Bitte zuerst die Fotos ausrichten (Schritt 1 → „Ausrichten & weiter“).', 4000); return; }
   anc.on = true;
   $('#view-edit').classList.add('anchor-mode');
   document.body.classList.add('anchor-mode');
@@ -637,7 +637,7 @@ function anchorPointsFor(f) {
   return project.anchors.map((a, k) => {
     const p = f.anchorPts?.[k];
     if (p && p.pred) return { x: p.x, y: p.y, cls: 'pred', pred: true };
-    if (p) return { x: p.x, y: p.y, cls: p.outlier ? 'bad' : p.manual ? 'manual' : p.score >= 0.55 ? 'good' : p.score >= 0.3 ? 'warn' : 'bad', score: p.score, manual: p.manual, outlier: p.outlier };
+    if (p) return { x: p.x, y: p.y, cls: p.outlier ? 'bad' : (p.manual && !p.snapped && !p.pinned) ? 'warn' : p.manual ? 'manual' : p.score >= 0.55 ? 'good' : p.score >= 0.3 ? 'warn' : 'bad', score: p.score, manual: p.manual, outlier: p.outlier };
     const [x, y] = apply(Ti, a.x, a.y);
     return { x, y, cls: 'pred', pred: true };
   });
@@ -649,7 +649,7 @@ function renderAnchors() {
   $('#anchor-layer').innerHTML = pts.map((p, k) => {
     const [l, t] = canonToPct(f, p.x, p.y);
     const act = !isRef && anc.active === k ? ' active' : '';
-    return `<div class="anchor-pt ${p.cls}${p.pred ? ' pred' : ''}${act}${anc.drag?.k === k ? ' drag' : ''}" style="left:${l}%;top:${t}%">${k + 1}</div>`;
+    return `<div class="anchor-pt ${p.cls}${p.pred ? ' pred' : ''}${act}${anc.drag?.k === k ? ' drag' : ''}" style="left:${l}%;top:${t}%"><span>${k + 1}</span></div>`;
   }).join('');
   // Referenz klein einblenden, damit man weiß, wo die Punkte hingehören
   const mini = $('#anc-mini'), ref = project.ref;
@@ -665,9 +665,13 @@ function renderAnchors() {
   $('#anc-pos').textContent = `${isRef ? '★ Referenz · ' : ''}Foto ${idx + 1} von ${list.length} · ${f.name}`;
   const tracked = project.frames.some(g => g.anchorPts);
   let help;
-  if (isRef && !pts.length) help = 'Tippe im Bild auf 2–4 markante Stellen, die in allen Fotos gleich bleiben – z. B. eine Ecke, ein Muster oder ein Fleck auf der Unterlage. Am besten weit auseinander, nahe den Bildrändern. Nicht auf Dinge, die sich bewegen oder verändern.';
+  if (isRef && !pts.length) help = 'Tippe im Bild auf 3–5 Stellen, die in ALLEN Fotos vorhanden sind und sich nicht bewegen – z. B. die ersten Haferflocken (nicht später hinzugefügte), Flecken oder Ecken. Möglichst weit auseinander. Nicht auf das, was sich bewegt oder wächst.';
   else if (isRef) help = 'Punkt antippen und ziehen zum Verschieben (die Lupe zeigt die Stelle vergrößert). Weitere Punkte durch Tippen hinzufügen. Danach „In allen Fotos suchen“.';
-  else if (anc.active >= 0) help = `Von Hand setzen: Tippe im Foto auf die Stelle von Punkt ${anc.active + 1} (siehe kleines Referenzbild). Danach geht es automatisch mit dem nächsten Punkt weiter. Gesetzte Punkte lassen sich auch ziehen.` + (tracked ? '' : ' Oder oben „In allen Fotos suchen“ – dann musst du nur noch korrigieren.');
+  else if (anc.active >= 0) {
+    const nMan = (f.anchorPts || []).filter(p => p?.manual).length;
+    help = `Tippe im Foto auf die Stelle von Punkt ${anc.active + 1} (siehe kleines Referenzbild). ` +
+      (nMan < 2 ? 'Nach zwei getippten Punkten erkennt Lapse Drehung und Zoom, sucht die übrigen Punkte selbst und rastet deine Tipps exakt ein.' : 'Übrige Punkte prüfen – falsch liegende antippen oder ziehen.');
+  }
   else help = 'Alle Punkte in diesem Foto sind von Hand gesetzt ✓ – weiter mit „Weiter ›“. Punkte lassen sich weiterhin ziehen.';
   $('#anc-help').textContent = help;
   $('#anc-list').innerHTML = pts.map((p, k) => {
@@ -679,7 +683,9 @@ function renderAnchors() {
     } else if (p.pred) t = anc.active === k ? '← jetzt im Foto antippen' : 'noch nicht gesetzt';
     else if (p.outlier && p.manual) t = 'weicht von den anderen ab – bitte mit der Lupe genauer setzen (antippen und ziehen)';
     else if (p.outlier) t = 'passt nicht zu den anderen Punkten – liegt er auf etwas, das sich bewegt? Bitte verschieben oder im Referenzbild löschen';
-    else if (p.manual) t = 'von Hand gesetzt ✓';
+    else if (p.manual && p.snapped) t = `getippt & eingerastet ✓ (${Math.round(p.snapScore * 100)} %)`;
+    else if (p.manual && p.pinned) t = 'von Hand platziert ✓';
+    else if (p.manual) t = 'getippt, nicht eingerastet – für Genauigkeit ziehen (Lupe)';
     else t = p.score >= 0.55 ? `gefunden (${Math.round(p.score * 100)} %) ✓` : p.score >= 0.3 ? `unsicher (${Math.round(p.score * 100)} %) – bitte prüfen` : 'nicht gefunden – bitte von Hand setzen';
     return `<li data-k="${k}" class="${!isRef && anc.active === k ? 'active' : ''}"><span class="n ${p.cls}">${k + 1}</span><span class="t">${t}</span>${isRef ? `<button data-del="${k}" aria-label="Punkt ${k + 1} löschen">×</button>` : ''}</li>`;
   }).join('');
@@ -741,7 +747,7 @@ layer.addEventListener('pointerdown', e => {
       // aktiven Punkt genau hier setzen; solange der Finger liegt, folgt er (mit Lupe)
       if (anc.active < 0) { toast('Alle Punkte sind gesetzt – zum Korrigieren einen Punkt ziehen.'); return; }
       const k = anc.active;
-      f.anchorPts[k] = { x: tapX, y: tapY, score: 1, manual: true };
+      f.anchorPts[k] = { x: tapX, y: tapY, score: 1, manual: true, pinned: false };
       anc.drag = { k, mode: 'place', cx: e.clientX, cy: e.clientY, ox: tapX, oy: tapY, rect, m, moved: true };
     }
     layer.setPointerCapture(e.pointerId);
@@ -752,6 +758,7 @@ layer.addEventListener('pointerdown', e => {
   if (hit < 0) {
     if (project.anchors.length >= MAX_ANCHORS) { toast(`Höchstens ${MAX_ANCHORS} Punkte.`); return; }
     project.anchors.push({ x: tapX, y: tapY });
+    toast(`Punkt ${project.anchors.length} gesetzt`, 1200);
     hit = project.anchors.length - 1;
     anchorsChanged();
   }
@@ -770,7 +777,7 @@ layer.addEventListener('pointermove', e => {
   x = Math.max(0, Math.min(f.w / d.m, x)); y = Math.max(0, Math.min(f.h / d.m, y));
   if (Math.hypot(e.clientX - d.cx, e.clientY - d.cy) > 2) d.moved = true;
   if (f.id === project.refId) { project.anchors[k].x = x; project.anchors[k].y = y; }
-  else if (d.moved) f.anchorPts[k] = { x, y, score: 1, manual: true };
+  else if (d.moved) f.anchorPts[k] = { x, y, score: 1, manual: true, pinned: d.mode === 'move' };
   renderAnchors();
   drawLoupe(x, y);
 });
@@ -793,14 +800,28 @@ const endDrag = () => {
   renderAnchors();
 };
 
-/** Handpunkte eines Fotos übernehmen: Ausrichtung sofort neu berechnen und flächig verfeinern. */
+/** Handpunkte eines Fotos übernehmen: Ausrichtung sofort neu berechnen. */
 function commitFrameAnchors(f) {
   project.applyAnchors(f);
   project.anchorsActive = true;
   project.assessQuality();
   renderAnchors();
   renderStrip();
-  refineAnchored(project, getAligner(), f).then(() => { project.assessQuality(); renderAnchors(); renderStrip(); }).catch(() => {});
+  const manual = f.anchorPts.filter(p => p?.manual).length;
+  if (manual >= 2) {
+    // Ab zwei Handpunkten: übrige Punkte suchen, Tipps exakt einrasten
+    snapFrameAnchors(project, getAligner(), f).then(ok => {
+      if (!ok || anc.frame !== f) return;
+      const pending = f.anchorPts.findIndex(p => !p?.manual && !(p && !p.pred && p.score >= 0.55 && !p.outlier));
+      anc.active = pending;
+      project.assessQuality();
+      renderAnchors();
+      renderStrip();
+      if (pending < 0) toast('Foto ausgerichtet ✓ – weiter mit „Weiter ›“.');
+    }).catch(err => toast('Fehler beim Einrasten: ' + err.message));
+  } else if (!manual) {
+    refineAnchored(project, getAligner(), f).then(() => { project.assessQuality(); renderAnchors(); renderStrip(); }).catch(() => {});
+  }
 }
 layer.addEventListener('pointerup', endDrag);
 layer.addEventListener('pointercancel', endDrag);
