@@ -182,7 +182,7 @@ async function addFiles(files) {
   updatePrimary();
   scheduleSave(0);
   if (errors.length) toast(`${errors.length} Datei(en) konnten nicht gelesen werden.`, 4500);
-  else if (project.frames.length >= 2) toast('Fotos bereit – jetzt ausrichten.');
+  else if (project.frames.length >= 2) toast('Fotos bereit – weiter mit dem orangen Knopf.');
 }
 
 function renderGrid() {
@@ -206,7 +206,7 @@ $('#grid').onclick = e => {
   if (id) removeFrames([id]);
 };
 
-function removeFrames(ids) {
+function removeFrames(ids, { keepAligned = false } = {}) {
   for (const id of ids) {
     const i = project.frames.findIndex(f => f.id === id);
     if (i < 0) continue;
@@ -219,7 +219,8 @@ function removeFrames(ids) {
     if (project.refId === id) project.refId = null;
     if (ui.selected === f) ui.selected = null;
   }
-  project.aligned = false;
+  // Nach dem Ausrichten bleibt die Ausrichtung der übrigen Fotos gültig
+  if (!keepAligned || project.included.length < 2 || !project.ref) project.aligned = false;
   renderGrid();
   updateSteps();
   if (db.available) {
@@ -271,7 +272,7 @@ async function runAlign() {
     const skipped = auto.length + failed.length;
     const parts = [skipped ? `${skipped} Foto(s) ließen sich nicht ausrichten und wurden ausgeschlossen (grau markiert).` : '',
       flagged ? `${flagged} Foto(s) bitte prüfen.` : ''].filter(Boolean);
-    toast(parts.length ? 'Fertig. ' + parts.join(' ') : 'Fertig – alle Fotos sauber ausgerichtet.', parts.length ? 6000 : 3500);
+    if (!openReview()) toast(parts.length ? 'Fertig. ' + parts.join(' ') : 'Fertig – alle Fotos sauber ausgerichtet.', parts.length ? 6000 : 3500);
   } catch (err) {
     progress.close();
     console.error(err);
@@ -299,10 +300,7 @@ async function runAnchorAlign() {
     updateSteps();
     if (!player) initPlayer();
     showView('edit');
-    if (res.failed.length) {
-      setTab('frame');
-      toast(`${n - res.failed.length} von ${n} Fotos ausgerichtet. ${res.failed.length} Foto(s) unsicher – im Reiter „Fotos“ antippen und Punkte korrigieren.`, 7000);
-    } else toast(`Alle ${n} Fotos ausgerichtet. Vorschau antippen für Vollbild.`, 4500);
+    if (!openReview()) toast(`Alle ${n} Fotos ausgerichtet. Vorschau antippen für Vollbild.`, 4500);
   } catch (err) {
     progress.close();
     console.error(err);
@@ -311,6 +309,73 @@ async function runAnchorAlign() {
     keepAwake(false);
   }
 }
+
+// ---- Problemfotos: prüfen, korrigieren oder entfernen ----
+function problemFrames() {
+  return project.frames.filter(f => f.id !== project.refId && f.featRes > 0 &&
+    ((f.excluded && f.autoExcluded) || (!f.excluded && (f.quality === 'warn' || f.quality === 'bad'))));
+}
+
+function updateIssues() {
+  const n = project.aligned ? problemFrames().length : 0;
+  $('#issues').hidden = !n;
+  $('#issues-text').textContent = `⚠ ${n} Foto${n === 1 ? '' : 's'} nicht sicher ausgerichtet`;
+}
+$('#issues-btn').onclick = () => openReview();
+
+/** Zeigt das Prüf-Fenster, falls es Problemfotos gibt. Rückgabe: ob es angezeigt wurde. */
+function openReview() {
+  const list = problemFrames();
+  if (!list.length) { $('#review').hidden = true; updateIssues(); return false; }
+  const n = list.length;
+  $('#review-title').textContent = `Fast fertig – ${n} Foto${n === 1 ? '' : 's'} prüfen`;
+  $('#review-text').textContent = `Bei ${n === 1 ? 'diesem Foto' : 'diesen Fotos'} hat Lapse die Punkte nicht sicher gefunden. Du kannst die Punkte von Hand setzen („Korrigieren“) oder das Foto entfernen – das Video entsteht dann ohne dieses Foto.`;
+  $('#review-list').innerHTML = list.map(f => `<li>
+      <img src="${f.thumbUrl}" alt="">
+      <div class="rn">${f.name}<small>${f.excluded ? 'Punkte nicht gefunden – derzeit nicht im Video' : 'unsicher ausgerichtet – bitte ansehen'}</small></div>
+      <div class="rb"><button class="btn" data-fix="${f.id}">Korrigieren</button><button class="btn ghost" data-rm="${f.id}">Entfernen</button></div>
+    </li>`).join('');
+  $('#review-remove-all').textContent = n === 1 ? 'Foto entfernen und weiter' : `Alle ${n} entfernen und weiter`;
+  $('#review').hidden = false;
+  return true;
+}
+
+function removeProblem(ids) {
+  removeFrames(ids, { keepAligned: true });
+  if (!project.aligned) { $('#review').hidden = true; showView('photos'); toast('Zu wenige Fotos übrig – bitte Fotos hinzufügen.', 5000); return; }
+  scheduleRefresh(0);
+  renderStrip();
+}
+
+$('#review-list').onclick = e => {
+  const rm = e.target.closest('[data-rm]')?.dataset.rm, fix = e.target.closest('[data-fix]')?.dataset.fix;
+  if (rm) {
+    removeProblem([rm]);
+    if (!openReview()) toast('Alles bereit – Vorschau antippen für Vollbild.');
+  } else if (fix) {
+    $('#review').hidden = true;
+    if (ui.view !== 'edit') showView('edit');
+    openAnchors(project.byId(fix));
+  }
+};
+$('#review-remove-all').onclick = () => {
+  const ids = problemFrames().map(f => f.id);
+  $('#review').hidden = true;
+  removeProblem(ids);
+  toast(`${ids.length} Foto${ids.length === 1 ? '' : 's'} entfernt – Vorschau antippen für Vollbild.`, 4000);
+};
+$('#review-continue').onclick = () => { $('#review').hidden = true; updateIssues(); };
+
+// Aus der Punkt-Korrektur heraus entfernen
+$('#anc-remove').onclick = () => {
+  const f = anc.frame;
+  if (!f || f.id === project.refId) return;
+  const next = problemFrames().find(g => g !== f);
+  removeProblem([f.id]);
+  toast(`„${f.name}“ entfernt.`);
+  if (next && project.frames.includes(next)) showAnchorFrame(next);
+  else closeAnchors();
+};
 
 // ---- Vollbild-Vorschau (Antippen der Vorschau) ----
 function enterFullscreen() {
@@ -503,6 +568,7 @@ async function refresh({ onProgress } = {}) {
   player?.invalidate();
   if (ui.view === 'edit') { renderStrip(); updateFramePanel(); updateCropHelp(); }
   renderNotice();
+  updateIssues();
   scheduleSave();
   return true;
 }
@@ -948,6 +1014,7 @@ function renderAnchors() {
     else t = p.score >= 0.55 ? `gefunden (${Math.round(p.score * 100)} %) ✓` : p.score >= 0.3 ? `unsicher (${Math.round(p.score * 100)} %) – bitte prüfen` : 'nicht gefunden – bitte von Hand setzen';
     return `<li data-k="${k}" class="${!isRef && anc.active === k ? 'active' : ''}"><span class="n ${p.cls}">${k + 1}</span><span class="t">${t}</span>${isRef ? `<button data-del="${k}" aria-label="Punkt ${k + 1} löschen">×</button>` : ''}</li>`;
   }).join('');
+  $('#anc-remove').hidden = isRef;
   $('#anc-prev').disabled = idx <= 0;
   $('#anc-next').disabled = idx >= list.length - 1;
   $('#anc-ref').disabled = isRef;
@@ -1113,7 +1180,11 @@ $('#f-anchors').onclick = () => {
   openAnchors(f && f.anchorPts && f.id !== project.refId ? f : project.ref);
   if (f && f.id !== project.refId && !project.anchors.length) toast('Erst im Referenzbild Punkte setzen, dann „In allen Fotos suchen“.', 4500);
 };
-$('#anc-done').onclick = () => closeAnchors();
+$('#anc-done').onclick = () => {
+  closeAnchors();
+  // gibt es noch unsichere Fotos, das Prüf-Fenster nach der Neuberechnung erneut anbieten
+  setTimeout(() => { if (problemFrames().length) updateIssues(); }, 800);
+};
 $('#anc-ref').onclick = () => showAnchorFrame(project.ref);
 $('#anc-prev').onclick = () => { const l = ancFrames(), i = l.indexOf(anc.frame); if (i > 0) showAnchorFrame(l[i - 1]); };
 $('#anc-next').onclick = () => { const l = ancFrames(), i = l.indexOf(anc.frame); if (i < l.length - 1) showAnchorFrame(l[i + 1]); };

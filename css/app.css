@@ -256,7 +256,8 @@ input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border-radius: 
 /* Ankerpunkte */
 .strip-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 #view-edit.anchor-mode .transport, #view-edit.anchor-mode .tabs, #view-edit.anchor-mode .notice,
-#view-edit.anchor-mode .panel:not(#panel-anchors), #view-edit.anchor-mode .strip-actions { display: none !important; }
+#view-edit.anchor-mode .panel:not(#panel-anchors), #view-edit.anchor-mode .strip-actions,
+#view-edit.anchor-mode .guide, #view-edit.anchor-mode .issues { display: none !important; }
 body.anchor-mode .actionbar { display: none; }
 body.anchor-mode { padding-bottom: calc(16px + var(--safe-b)); }
 .anchor-layer { position: absolute; inset: 0; touch-action: none; cursor: crosshair; }
@@ -339,6 +340,24 @@ body.fs-open { overflow: hidden; }
 body.fs-open .stage-wrap { z-index: 100; }
 body.fs-open .top, body.fs-open .actionbar, body.fs-open .toast { display: none; }
 #pts-strip .sf.sel { border-color: var(--accent); }
+
+.guide { background: var(--bg2); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 10px 12px; margin: 0 0 12px; }
+.guide b { font-size: 14px; }
+.guide p { margin: 3px 0 0; font-size: 13.5px; color: var(--muted); }
+#view-photos .empty ~ * .guide, #view-photos:has(#empty:not([hidden])) #guide-photos { display: none; }
+.issues { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent); border-radius: 12px; font-size: 14px; background: color-mix(in srgb, var(--warn) 8%, var(--card)); }
+.review-box { text-align: left; max-height: 92dvh; overflow: auto; }
+.review-box .btn.wide { margin-top: 8px; }
+.review-list { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 8px; }
+.review-list li { display: grid; grid-template-columns: 56px 1fr; gap: 4px 10px; align-items: center; background: var(--bg2); border-radius: 12px; padding: 8px; }
+.review-list img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; grid-row: span 2; }
+.review-list .rn { font-size: 13px; }
+.review-list .rn small { display: block; color: var(--muted); }
+.review-list .rb { display: flex; gap: 6px; }
+.review-list .rb .btn { flex: 1; min-height: 36px; font-size: 13px; padding: 0 8px; }
+.anc-actions { flex-wrap: nowrap; }
+.anc-actions .btn { flex: none; }
 
 /* Export */
 .ticks { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-top: -2px; }

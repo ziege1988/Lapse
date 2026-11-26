@@ -241,10 +241,15 @@ export class Project {
       if (f.id === this.refId) { f.quality = 'good'; f.qualityNote = ''; return; }
       if (!a || !a.ok) { q = 'bad'; note = 'Keine sichere Ausrichtung gefunden'; }
       else if (a.method === 'anker') {
-        if (a.used < Math.min(2, this.anchors.length)) { q = 'bad'; note = 'Zu wenige Ankerpunkte gefunden'; }
-        else if (a.anchorScore < 0.55) { q = 'warn'; note = 'Ankerpunkt unsicher gefunden – bitte prüfen'; }
-        else if ((f.anchorPts || []).some(p => p?.manual && !p.snapped && !p.pinned) && a.used <= 2) { q = 'warn'; note = 'Nur ungefähr getippt – Punkte mit der Lupe genau setzen (ziehen)'; }
-        else if (a.outliers) { q = 'warn'; note = 'Ein Ankerpunkt passt nicht zu den anderen – bitte prüfen'; }
+        // Bewertung: sicher gefundene Punkte + Bildübereinstimmung im Bereich der Punkte
+        const pts = (f.anchorPts || []).filter(p => p && !p.outlier && !p.pred);
+        const sure = pts.filter(p => p.manual ? (p.snapped || p.pinned) : p.score >= 0.55).length;
+        const onlyTaps = (f.anchorPts || []).some(p => p?.manual && !p.snapped && !p.pinned) && a.used <= 2;
+        if (a.used < Math.min(2, this.anchors.length)) { q = 'bad'; note = 'Zu wenige Punkte gefunden'; }
+        else if (a.ncc != null && a.ncc < 0.5) { q = 'warn'; note = 'Bild passt im Bereich der Punkte schlecht – bitte ansehen'; }
+        else if (onlyTaps) { q = 'warn'; note = 'Nur ungefähr getippt – Punkte mit der Lupe genau setzen (ziehen)'; }
+        else if (sure < 2) { q = 'warn'; note = 'Punkte unsicher gefunden – bitte ansehen'; }
+        else if (a.outliers && (a.ncc == null || a.ncc < 0.55)) { q = 'warn'; note = 'Ein Punkt passt nicht zu den anderen – bitte ansehen'; }
       } else if (a.anchorsRejected) {
         q = 'warn'; note = 'Ankerpunkte passen nicht zum Bild (bewegt sich etwas?) – automatische Ausrichtung beibehalten';
       } else if (a.ambiguous && !a.confirmedByAnchors) {

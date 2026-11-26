@@ -29,6 +29,7 @@
   <main>
     <!-- 1 · FOTOS -->
     <section id="view-photos" class="view">
+      <div class="guide" id="guide-photos"><b>Schritt 1 von 4 · Fotos auswählen</b><p>Wähle alle Fotos deiner Serie aus. Danach geht es unten mit dem orangen Knopf weiter.</p></div>
       <div id="empty" class="empty">
         <div class="empty-art" aria-hidden="true">
           <span></span><span></span><span></span>
@@ -78,6 +79,7 @@
 
     <!-- 2 · PUNKTE -->
     <section id="view-points" class="view" hidden>
+      <div class="guide" id="guide-points"><b>Schritt 2 von 4 · Bezugspunkte setzen</b><p>Tippe im Foto auf 3–5 Stellen, die sich in allen Fotos nicht verändern. Dann unten „Alle Fotos ausrichten“.</p></div>
       <div class="stage-wrap pts-wrap">
         <div class="stage" id="pts-stage">
           <canvas id="pts-canvas"></canvas>
@@ -110,6 +112,11 @@
 
     <!-- 3 · VORSCHAU -->
     <section id="view-edit" class="view" hidden>
+      <div class="guide" id="guide-edit"><b>Schritt 3 von 4 · Vorschau & Feinschliff</b><p>Video antippen = Vollbild. Darunter Tempo und Bild anpassen. Wenn alles passt: unten „Weiter zum Export“.</p></div>
+      <div class="issues" id="issues" hidden>
+        <span id="issues-text"></span>
+        <button class="btn small warn" id="issues-btn">Jetzt prüfen</button>
+      </div>
       <div class="stage-wrap">
         <div class="stage" id="stage">
           <canvas id="preview"></canvas>
@@ -152,7 +159,10 @@
             <b id="anc-title">Ankerpunkte</b>
             <div class="muted small" id="anc-pos"></div>
           </div>
-          <button class="btn small primary" id="anc-done">Fertig</button>
+          <div class="btn-row anc-actions">
+            <button class="btn small ghost" id="anc-remove">Foto entfernen</button>
+            <button class="btn small primary" id="anc-done">Fertig</button>
+          </div>
         </div>
         <div class="anc-intro">
           <div class="anc-mini" id="anc-mini" hidden></div>
@@ -312,6 +322,7 @@
 
     <!-- 3 · EXPORT -->
     <section id="view-export" class="view" hidden>
+      <div class="guide" id="guide-export"><b>Schritt 4 von 4 · Video speichern</b><p>Format und Qualität wählen (die Voreinstellung passt fürs iPhone), dann unten „Video erstellen“ und im Fenster „In Fotos sichern“.</p></div>
       <div class="card">
         <h2>Format</h2>
         <div id="formats" class="radio-list"></div>
@@ -365,6 +376,15 @@
       <div class="bar"><i id="progress-bar"></i></div>
       <p id="progress-text" class="muted small"></p>
       <button class="btn ghost" id="progress-cancel">Abbrechen</button>
+    </div>
+  </div>
+  <div class="modal" id="review" hidden role="dialog" aria-modal="true" aria-labelledby="review-title">
+    <div class="modal-box review-box">
+      <h2 id="review-title">Fast fertig</h2>
+      <p class="small" id="review-text"></p>
+      <ul class="review-list" id="review-list"></ul>
+      <button class="btn primary wide" id="review-remove-all">Alle entfernen und weiter</button>
+      <button class="btn wide" id="review-continue">Weiter zur Vorschau</button>
     </div>
   </div>
   <div class="modal" id="done" hidden role="dialog" aria-modal="true" aria-labelledby="done-title">
