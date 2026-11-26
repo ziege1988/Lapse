@@ -1,0 +1,146 @@
+// Ankerpunkte: vom Nutzer gesetzte markante Stellen im Referenzbild werden in jedem
+// Foto per normierter Kreuzkorrelation (NCC) gesucht – grob auf einer kleinen
+// Pyramidenebene mit Drehung/Zoom-Varianten, dann fein mit Subpixel-Genauigkeit.
+
+import { mul, inv, apply } from './geometry.js';
+
+const diag = (a, b = a) => [a, 0, 0, 0, b, 0, 0, 0, 1];
+
+function sample(img, w, h, x, y) {
+  if (!(x >= 0 && y >= 0 && x < w - 1 && y < h - 1)) return NaN;
+  const x0 = x | 0, y0 = y | 0, tx = x - x0, ty = y - y0, i = y0 * w + x0;
+  return (img[i] * (1 - tx) + img[i + 1] * tx) * (1 - ty) + (img[i + w] * (1 - tx) + img[i + w + 1] * tx) * ty;
+}
+
+/** Vorlage (Template) um einen Punkt einer Ebene, als Offsets + normierte Werte. */
+function template(L, px, py, r, step) {
+  const offs = [], vals = [];
+  for (let v = -r; v <= r; v += step) for (let u = -r; u <= r; u += step) {
+    const val = sample(L.img, L.w, L.h, px + u, py + v);
+    if (Number.isNaN(val)) return null;
+    offs.push(u, v); vals.push(val);
+  }
+  const n = vals.length, mean = vals.reduce((a, b) => a + b, 0) / n;
+  let ss = 0;
+  for (let i = 0; i < n; i++) { vals[i] -= mean; ss += vals[i] * vals[i]; }
+  const sd = Math.sqrt(ss);
+  if (sd < 1e-3 * n) return { offs, vals: new Float32Array(vals), sd, flat: true };
+  return { offs, vals: new Float32Array(vals), sd, flat: false };
+}
+
+/** NCC der Vorlage gegen das Bild bei Mittelpunkt (cx,cy) mit linearer Abbildung A (2x2). */
+function nccAt(L, T, cx, cy, A) {
+  const n = T.vals.length, buf = new Float32Array(n);
+  let s = 0;
+  for (let k = 0; k < n; k++) {
+    const u = T.offs[2 * k], v = T.offs[2 * k + 1];
+    const val = sample(L.img, L.w, L.h, cx + A[0] * u + A[1] * v, cy + A[2] * u + A[3] * v);
+    if (Number.isNaN(val)) return -1;
+    buf[k] = val; s += val;
+  }
+  const mean = s / n;
+  let ss = 0, sp = 0;
+  for (let k = 0; k < n; k++) { const d = buf[k] - mean; ss += d * d; sp += d * T.vals[k]; }
+  return ss > 1e-6 ? sp / (Math.sqrt(ss) * T.sd) : -1;
+}
+
+/**
+ * Sucht alle Ankerpunkte in einem Bild.
+ * ref: { pyr, m }, img: { pyr, m }; anchors: [{x,y}] kanonisch im Referenzbild;
+ * predH: Vorhersage Bild->Referenz (kanonisch) oder null.
+ * Rückgabe: [{ x, y (kanonisch im Bild), score }]
+ */
+export function trackAnchors(ref, img, anchors, predH) {
+  // Vorhersage als Pixelabbildung Ref(Ebene 0) -> Bild(Ebene 0)
+  let W = diag(img.m / ref.m);
+  if (predH) { const Hi = inv(predH); if (Hi) W = mul(diag(img.m), mul(Hi, diag(1 / ref.m))); }
+  const cl = Math.max(0, img.pyr.findIndex(L => Math.max(L.w, L.h) <= 220));
+  const lc = cl < 0 ? img.pyr.length - 1 : cl;
+  const R0 = ref.pyr[0], Rc = ref.pyr[Math.min(lc, ref.pyr.length - 1)], I0 = img.pyr[0], Ic = img.pyr[lc];
+  const sc = Ic.s;
+  const out = [];
+  for (const a of anchors) {
+    const rx = a.x * ref.m, ry = a.y * ref.m;           // Ref-Pixel (Ebene 0)
+    const [px, py] = apply(W, rx, ry);                 // vorhergesagte Lage im Bild
+    // lokale lineare Abbildung der Vorhersage (Jacobi-Matrix) am Punkt
+    const e = 1;
+    const [ax, ay] = apply(W, rx + e, ry), [bx, by] = apply(W, rx, ry + e);
+    const Jw = [ax - px, bx - px, ay - py, by - py];
+    // --- grob ---
+    const rT = Math.max(6, Math.round(0.05 * Math.max(Rc.w, Rc.h)));
+    const Tc = template(Rc, rx / sc, ry / sc, rT, 1);
+    if (!Tc || Tc.flat) { out.push({ x: px / img.m, y: py / img.m, score: 0, reason: Tc ? 'flach' : 'rand' }); continue; }
+    const search = Math.round((predH ? 0.06 : 0.2) * Math.max(Ic.w, Ic.h));
+    const rots = predH ? [-4, 0, 4] : [-10, -5, 0, 5, 10], scales = predH ? [0.95, 1, 1.05] : [0.88, 1, 1.12];
+    let best = { r: -2 };
+    const step = search > 16 ? 2 : 1;
+    for (const rot of rots) for (const s of scales) {
+      const t = rot * Math.PI / 180, c = Math.cos(t) * s, sn = Math.sin(t) * s;
+      const A = [Jw[0] * c - Jw[1] * sn, Jw[0] * sn + Jw[1] * c, Jw[2] * c - Jw[3] * sn, Jw[2] * sn + Jw[3] * c];
+      for (let dy = -search; dy <= search; dy += step) for (let dx = -search; dx <= search; dx += step) {
+        const r = nccAt(Ic, Tc, px / sc + dx, py / sc + dy, A);
+        if (r > best.r) best = { r, x: px / sc + dx, y: py / sc + dy, A };
+      }
+    }
+    // Mehrdeutigkeit prüfen: gibt es eine fast gleich gute Stelle weiter weg?
+    let second = -1;
+    {
+      const A = best.A, minD = Math.max(3, rT * 0.6);
+      for (let dy = -search; dy <= search; dy += 2) for (let dx = -search; dx <= search; dx += 2) {
+        const x = px / sc + dx, y = py / sc + dy;
+        if (Math.hypot(x - best.x, y - best.y) < minD) continue;
+        const r = nccAt(Ic, Tc, x, y, A);
+        if (r > second) second = r;
+      }
+    }
+    if (step > 1) { // nachschärfen
+      const b0 = best;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const r = nccAt(Ic, Tc, b0.x + dx, b0.y + dy, b0.A);
+        if (r > best.r) best = { r, x: b0.x + dx, y: b0.y + dy, A: b0.A };
+      }
+    }
+    // --- fein (Ebene 0) ---
+    const rF = Math.max(8, Math.round(0.035 * Math.max(R0.w, R0.h)));
+    const T0 = template(R0, rx, ry, rF, 1);
+    let fx = best.x * sc, fy = best.y * sc, fr = best.r;
+    if (T0 && !T0.flat) {
+      const span = Math.ceil(sc) + 1;
+      const grid = [];
+      let bi = -1, bv = -2;
+      for (let dy = -span; dy <= span; dy++) for (let dx = -span; dx <= span; dx++) {
+        const r = nccAt(I0, T0, best.x * sc + dx, best.y * sc + dy, best.A);
+        grid.push(r);
+        if (r > bv) { bv = r; bi = grid.length - 1; }
+      }
+      const side = 2 * span + 1, gx = bi % side, gy = (bi / side) | 0;
+      fx = best.x * sc + gx - span; fy = best.y * sc + gy - span; fr = bv;
+      // Subpixel per Parabel
+      if (gx > 0 && gx < side - 1) { const l = grid[bi - 1], c = grid[bi], r = grid[bi + 1], d = l - 2 * c + r; if (d < 0) fx += Math.max(-0.5, Math.min(0.5, 0.5 * (l - r) / d)); }
+      if (gy > 0 && gy < side - 1) { const u = grid[bi - side], c = grid[bi], dn = grid[bi + side], d = u - 2 * c + dn; if (d < 0) fy += Math.max(-0.5, Math.min(0.5, 0.5 * (u - dn) / d)); }
+    }
+    // Eindeutigkeit fließt in die Bewertung ein (gerade Kanten, Streifen -> unsicher)
+    const unique = Math.max(0, Math.min(1, (best.r - second) / 0.15));
+    out.push({ x: fx / img.m, y: fy / img.m, score: Math.max(0, fr) * (0.4 + 0.6 * unique), match: Math.max(0, fr), unique });
+  }
+  return out;
+}
+
+/** Wie eindeutig ist eine Stelle im Referenzbild? 0 = mehrdeutig/flach, 1 = sehr eindeutig. */
+export function anchorUniqueness(ref, a) {
+  const lc = Math.max(0, ref.pyr.findIndex(L => Math.max(L.w, L.h) <= 220));
+  const L = ref.pyr[lc], sc = L.s;
+  const rT = Math.max(6, Math.round(0.05 * Math.max(L.w, L.h)));
+  const x = a.x * ref.m / sc, y = a.y * ref.m / sc;
+  const T = template(L, x, y, rT, 1);
+  if (!T) return { value: 0, reason: 'rand' };
+  if (T.flat) return { value: 0, reason: 'flach' };
+  const search = Math.round(0.1 * Math.max(L.w, L.h)), minD = Math.max(3, rT * 0.6);
+  let second = -1;
+  for (let dy = -search; dy <= search; dy += 1) for (let dx = -search; dx <= search; dx += 1) {
+    if (Math.hypot(dx, dy) < minD) continue;
+    const r = nccAt(L, T, x + dx, y + dy, [1, 0, 0, 1]);
+    if (r > second) second = r;
+  }
+  return { value: Math.max(0, Math.min(1, (1 - second) / 0.25)), reason: second > 0.9 ? 'kante' : '' };
+}

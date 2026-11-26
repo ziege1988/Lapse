@@ -1,10 +1,10 @@
 // Lapse – Steuerung der Oberfläche.
 
 import { Project, newManual, DEFAULT_SETTINGS } from './project.js';
-import { Aligner, importFiles, sortFrames, alignAll, refineFrame, StatsEngine } from './pipeline.js';
+import { Aligner, importFiles, sortFrames, alignAll, refineFrame, StatsEngine, anchorUniqueness, trackAllAnchors, refineAnchored } from './pipeline.js';
 import { Player } from './player.js';
 import { FORMATS, findConfig, mediaRecorderType, outputSize, sourceDetail, runExport, exportPlan, qualityName } from './export.js';
-import { inv, mul, I3 } from './geometry.js';
+import { inv, mul, apply, I3 } from './geometry.js';
 import { BUILD, BUILD_DATE, isDev } from './version.js';
 
 const $ = s => document.querySelector(s);
@@ -18,6 +18,8 @@ const store = {
 };
 Object.assign(project.settings, store.get('settings', {}));
 if (project.settings.refMode === 'manual') project.settings.refMode = 'middle';
+// Ab Version 2: "Freihand" ist Standard (robuster bei Handaufnahmen)
+if (store.get('settingsVersion', 1) < 2) { if (project.settings.model === 'similarity') project.settings.model = 'homography'; store.set('settingsVersion', 2); }
 
 const ui = {
   view: 'photos', tab: 'video', selected: null, compare: 'off',
@@ -75,6 +77,7 @@ function fmtClock(s) {
 // ---------------------------------------------------------------- Ansichten
 
 function showView(v) {
+  if (anc.on && v !== 'edit') closeAnchors({ refreshAfter: false });
   ui.view = v;
   for (const s of ['photos', 'edit', 'export']) $('#view-' + s).hidden = s !== v;
   $$('.step').forEach(b => b.classList.toggle('active', b.dataset.view === v));
@@ -275,10 +278,11 @@ function initPlayer() {
 
 function layoutStage() {
   if (!player || !project.crop) return;
-  const aspect = project.crop.w / project.crop.h;
+  // Ankerpunkt-Modus: ganzes Foto, größer dargestellt
+  const aspect = anc.on ? anc.frame.w / anc.frame.h : project.crop.w / project.crop.h;
   const avail = $('.stage-wrap').clientWidth || window.innerWidth - 32;
   // Vorschau bleibt angeheftet -> Höhe begrenzen, damit genug Platz für die Regler bleibt
-  const maxH = Math.min(window.innerHeight * 0.36, 560);
+  const maxH = Math.min(window.innerHeight * (anc.on ? 0.5 : 0.36), anc.on ? 900 : 560);
   let w = Math.min(avail, maxH * aspect), h = w / aspect;
   $('#stage').style.width = w + 'px';
   $('#stage').style.height = h + 'px';
@@ -334,7 +338,8 @@ function renderStrip() {
 $('#strip').onclick = e => {
   const id = e.target.closest('.sf')?.dataset.id;
   const f = id && project.byId(id);
-  if (f) selectFrame(f);
+  if (f && anc.on) showAnchorFrame(f);
+  else if (f) selectFrame(f);
 };
 
 function selectFrame(f, { switchTab = true } = {}) {
@@ -411,10 +416,18 @@ function updateFramePanel() {
   if (f.id === project.refId) { q.className = 'quality good'; q.textContent = '★ Referenzbild – alle anderen werden hierauf ausgerichtet'; }
   else if (f.excluded) {
     q.className = 'quality' + (f.autoExcluded ? ' bad' : '');
-    q.textContent = f.autoExcluded ? 'Automatisch ausgeschlossen: keine sichere Ausrichtung gefunden (anderes Motiv, Nebel, Unschärfe?).' : 'Ausgeschlossen – erscheint nicht im Video';
+    q.textContent = f.autoExcluded ? 'Automatisch ausgeschlossen: keine sichere Ausrichtung gefunden. Tipp: „Mit Ankerpunkten ausrichten“.' : 'Ausgeschlossen – erscheint nicht im Video';
   }
   else {
-    const detail = a?.ok ? ` (${a.inliers} Punkte, Abweichung ${num(a.rms, 2)} px${a.via ? ', über Nachbarbild' : ''})` : '';
+    const pct = v => `${Math.round(v * 100)} %`;
+    let detail = '';
+    if (a?.ok) {
+      if (a.method === 'anker') detail = ` (Ankerpunkte: ${a.used} von ${project.anchors.length}, Sicherheit ${pct(a.anchorScore)}${a.refined ? ', flächig verfeinert' : ''})`;
+      else if (a.anchorsRejected) detail = ` (Übereinstimmung ${pct(a.ncc ?? 0)} · automatisch, Ankerpunkte widersprechen)`;
+      else if (a.confirmedByAnchors) detail = ` (Übereinstimmung ${pct(a.ncc ?? 1)} · durch ${a.used} Ankerpunkte bestätigt)`;
+      else if (a.ncc != null) detail = ` (Übereinstimmung ${pct(a.ncc)} · ${a.method === 'flächig' ? 'Flächenvergleich' : 'Merkmale'}${a.inliers ? `, ${a.inliers} Punkte` : ''})`;
+      else detail = ` (${a.inliers} Punkte, Abweichung ${num(a.rms, 2)} px${a.via ? ', über Nachbarbild' : ''})`;
+    }
     q.className = 'quality ' + (f.quality || 'good');
     q.textContent = f.quality === 'good' ? `✓ ${f.manualChecked ? 'Geprüft' : 'Gut ausgerichtet'}${detail}` : `⚠ ${f.qualityNote || 'Bitte prüfen'}${detail}`;
   }
@@ -472,6 +485,9 @@ $('#f-exclude').onclick = () => {
 $('#f-ref').onclick = () => {
   const f = ui.selected;
   if (!f || f.excluded) return;
+  // Ankerpunkte gelten für das alte Referenzbild -> verwerfen
+  const hadAnchors = project.anchors.length > 0;
+  project.resetAnchors(false);
   // Transformationen exakt auf das neue Referenzbild umrechnen (kein erneutes Matching nötig)
   const Tinv = inv(project.transform(f));
   if (!Tinv) return;
@@ -484,13 +500,13 @@ $('#f-ref').onclick = () => {
     g.manual = { ...g.manual, dx: 0, dy: 0, rot: 0, scale: 1 };
   }
   if (oldRef && oldRef !== f) oldRef.align = { ...oldRef.align, ok: true, inliers: fAlign?.inliers ?? 0, rms: fAlign?.rms ?? 0 };
-  f.align = { ...f.align, ok: true, H: I3(), inliers: Infinity, rms: 0, via: null };
+  f.align = { ...f.align, ok: true, H: I3(), inliers: Infinity, rms: 0, ncc: 1, method: 'ref', via: null };
   project.settings.refMode = 'manual';
   project.refId = f.id;
   scheduleRefresh(0);
   updateFramePanel();
   renderStrip();
-  toast('Neues Referenzbild gesetzt.');
+  toast(hadAnchors ? 'Neues Referenzbild gesetzt. Ankerpunkte bitte neu setzen.' : 'Neues Referenzbild gesetzt.');
 };
 
 $('#f-refine').onclick = async () => {
@@ -506,7 +522,8 @@ $('#f-refine').onclick = async () => {
     await refresh();
     progress.close();
     const a = f.align;
-    toast(a.ok ? `Neu ausgerichtet: ${a.inliers} Punkte, Abweichung ${num(a.rms, 2)} px${before?.ok ? ` (vorher ${before.inliers})` : ''}.` : 'Keine sichere Ausrichtung gefunden – bitte manuell korrigieren oder ausschließen.', 4500);
+    const sc = x => (x?.ok ? (x.ncc != null ? `${Math.round(x.ncc * 100)} % Übereinstimmung` : `${x.inliers} Punkte`) : 'keine');
+    toast(a.ok ? `Neu ausgerichtet: ${sc(a)}${before?.ok ? ` (vorher ${sc(before)})` : ''}.` : 'Keine sichere Ausrichtung gefunden – Tipp: „Mit Ankerpunkten ausrichten“.', 5000);
     player.showFrame(f, ui.compare);
   } catch (err) {
     progress.close();
@@ -560,6 +577,308 @@ $('#notice-keep').onclick = () => {
   renderNotice();
 };
 
+// ---------------------------------------------------------------- Ankerpunkte
+// Der Nutzer setzt im Referenzbild markante Stellen; Lapse sucht sie in allen Fotos
+// und richtet danach aus. Falsch gefundene Punkte lassen sich per Finger korrigieren.
+
+const anc = { on: false, frame: null, drag: null, bmp: null, bmpId: null, active: 0 };
+const MAX_ANCHORS = 6;
+const ancFrames = () => project.frames.filter(f => f.featRes > 0);
+const canonToPct = (f, x, y) => { const m = Math.max(f.w, f.h); return [x * m / f.w * 100, y * m / f.h * 100]; };
+
+function openAnchors(frame = project.ref) {
+  if (!project.aligned || !player) return;
+  anc.on = true;
+  $('#view-edit').classList.add('anchor-mode');
+  document.body.classList.add('anchor-mode');
+  $('#panel-anchors').hidden = false;
+  $('#anchor-layer').hidden = false;
+  showAnchorFrame(frame);
+  if (project.anchors.length) anchorUniqueness(project, getAligner()).then(renderAnchors).catch(() => {});
+}
+
+function closeAnchors({ refreshAfter = true } = {}) {
+  anc.on = false;
+  $('#view-edit').classList.remove('anchor-mode');
+  document.body.classList.remove('anchor-mode');
+  $('#panel-anchors').hidden = true;
+  $('#anchor-layer').hidden = true;
+  $('#loupe').hidden = true;
+  setTab(ui.tab);
+  player?.stopInspect();
+  layoutStage();
+  renderStrip();
+  if (refreshAfter) scheduleRefresh(0);
+}
+
+async function showAnchorFrame(f) {
+  anc.frame = f;
+  anc.active = Math.max(0, (f.anchorPts || []).findIndex(p => !p?.manual));
+  if (f.anchorPts && f.anchorPts.every(p => p?.manual)) anc.active = -1;
+  player.showRaw(f);
+  layoutStage();
+  renderAnchors();
+  $$('#strip .sf.sel').forEach(el => el.classList.remove('sel'));
+  const el = $(`#strip [data-id="${f.id}"]`), strip = $('#strip');
+  if (el) { el.classList.add('sel'); strip.scrollLeft = el.offsetLeft - strip.clientWidth / 2 + el.offsetWidth / 2; }
+  if (anc.bmpId !== f.id) {
+    anc.bmp?.close?.();
+    anc.bmp = null; anc.bmpId = f.id;
+    try { const b = await createImageBitmap(f.previewBlob); if (anc.bmpId === f.id) anc.bmp = b; else b.close?.(); } catch { /* Lupe ohne Bild */ }
+  }
+}
+
+/** Punkte für die Anzeige im aktuellen Foto (kanonische Bildkoordinaten). */
+function anchorPointsFor(f) {
+  if (f.id === project.refId) {
+    return project.anchors.map(a => ({ x: a.x, y: a.y, cls: a.uniq == null ? '' : a.uniq >= 0.5 ? 'good' : a.uniq >= 0.25 ? 'warn' : 'bad', uniq: a.uniq, reason: a.uniqReason }));
+  }
+  const Ti = inv(project.transform(f)) || I3();
+  return project.anchors.map((a, k) => {
+    const p = f.anchorPts?.[k];
+    if (p && p.pred) return { x: p.x, y: p.y, cls: 'pred', pred: true };
+    if (p) return { x: p.x, y: p.y, cls: p.outlier ? 'bad' : p.manual ? 'manual' : p.score >= 0.55 ? 'good' : p.score >= 0.3 ? 'warn' : 'bad', score: p.score, manual: p.manual, outlier: p.outlier };
+    const [x, y] = apply(Ti, a.x, a.y);
+    return { x, y, cls: 'pred', pred: true };
+  });
+}
+
+function renderAnchors() {
+  if (!anc.on) return;
+  const f = anc.frame, isRef = f.id === project.refId, pts = anchorPointsFor(f);
+  $('#anchor-layer').innerHTML = pts.map((p, k) => {
+    const [l, t] = canonToPct(f, p.x, p.y);
+    const act = !isRef && anc.active === k ? ' active' : '';
+    return `<div class="anchor-pt ${p.cls}${p.pred ? ' pred' : ''}${act}${anc.drag?.k === k ? ' drag' : ''}" style="left:${l}%;top:${t}%">${k + 1}</div>`;
+  }).join('');
+  // Referenz klein einblenden, damit man weiß, wo die Punkte hingehören
+  const mini = $('#anc-mini'), ref = project.ref;
+  mini.hidden = isRef || !project.anchors.length;
+  if (!mini.hidden) {
+    const rm = Math.max(ref.w, ref.h);
+    mini.style.aspectRatio = `${ref.w} / ${ref.h}`;
+    mini.innerHTML = `<img src="${ref.thumbUrl}" alt="Referenzbild">` + project.anchors.map((a, k) =>
+      `<span class="mini-pt${anc.active === k ? ' active' : ''}" style="left:${a.x * rm / ref.w * 100}%;top:${a.y * rm / ref.h * 100}%">${k + 1}</span>`).join('');
+  }
+  const list = ancFrames(), idx = list.indexOf(f);
+  $('#anc-title').textContent = isRef ? 'Ankerpunkte im Referenzbild' : 'Ankerpunkte prüfen';
+  $('#anc-pos').textContent = `${isRef ? '★ Referenz · ' : ''}Foto ${idx + 1} von ${list.length} · ${f.name}`;
+  const tracked = project.frames.some(g => g.anchorPts);
+  let help;
+  if (isRef && !pts.length) help = 'Tippe im Bild auf 2–4 markante Stellen, die in allen Fotos gleich bleiben – z. B. eine Ecke, ein Muster oder ein Fleck auf der Unterlage. Am besten weit auseinander, nahe den Bildrändern. Nicht auf Dinge, die sich bewegen oder verändern.';
+  else if (isRef) help = 'Punkt antippen und ziehen zum Verschieben (die Lupe zeigt die Stelle vergrößert). Weitere Punkte durch Tippen hinzufügen. Danach „In allen Fotos suchen“.';
+  else if (anc.active >= 0) help = `Von Hand setzen: Tippe im Foto auf die Stelle von Punkt ${anc.active + 1} (siehe kleines Referenzbild). Danach geht es automatisch mit dem nächsten Punkt weiter. Gesetzte Punkte lassen sich auch ziehen.` + (tracked ? '' : ' Oder oben „In allen Fotos suchen“ – dann musst du nur noch korrigieren.');
+  else help = 'Alle Punkte in diesem Foto sind von Hand gesetzt ✓ – weiter mit „Weiter ›“. Punkte lassen sich weiterhin ziehen.';
+  $('#anc-help').textContent = help;
+  $('#anc-list').innerHTML = pts.map((p, k) => {
+    let t;
+    if (isRef) {
+      t = p.uniq == null ? 'wird geprüft …' : p.uniq >= 0.5 ? 'eindeutige Stelle ✓'
+        : p.reason === 'flach' ? 'einfarbige Fläche – bitte andere Stelle wählen'
+        : p.reason === 'rand' ? 'zu nah am Rand' : 'nicht eindeutig (gerade Kante/Muster?) – besser eine Ecke wählen';
+    } else if (p.pred) t = anc.active === k ? '← jetzt im Foto antippen' : 'noch nicht gesetzt';
+    else if (p.outlier && p.manual) t = 'weicht von den anderen ab – bitte mit der Lupe genauer setzen (antippen und ziehen)';
+    else if (p.outlier) t = 'passt nicht zu den anderen Punkten – liegt er auf etwas, das sich bewegt? Bitte verschieben oder im Referenzbild löschen';
+    else if (p.manual) t = 'von Hand gesetzt ✓';
+    else t = p.score >= 0.55 ? `gefunden (${Math.round(p.score * 100)} %) ✓` : p.score >= 0.3 ? `unsicher (${Math.round(p.score * 100)} %) – bitte prüfen` : 'nicht gefunden – bitte von Hand setzen';
+    return `<li data-k="${k}" class="${!isRef && anc.active === k ? 'active' : ''}"><span class="n ${p.cls}">${k + 1}</span><span class="t">${t}</span>${isRef ? `<button data-del="${k}" aria-label="Punkt ${k + 1} löschen">×</button>` : ''}</li>`;
+  }).join('');
+  $('#anc-prev').disabled = idx <= 0;
+  $('#anc-next').disabled = idx >= list.length - 1;
+  $('#anc-ref').disabled = isRef;
+  $('#anc-track').disabled = !project.anchors.length;
+  $('#anc-track').textContent = tracked ? 'Erneut in allen Fotos suchen' : 'In allen Fotos suchen';
+  $('#anc-off').hidden = !project.anchorsActive;
+  $('#anc-clear').hidden = !project.anchors.length;
+  $('#anc-next-bad').hidden = !tracked;
+}
+
+/** Punkte im Referenzbild geändert -> gefundene Punkte verwerfen, Eindeutigkeit neu prüfen. */
+let uniqTimer = 0;
+function anchorsChanged() {
+  if (project.anchorsActive) project.disableAnchors();
+  for (const g of project.frames) g.anchorPts = null;
+  renderAnchors();
+  clearTimeout(uniqTimer);
+  uniqTimer = setTimeout(() => anchorUniqueness(project, getAligner()).then(renderAnchors).catch(() => {}), 250);
+}
+
+$('#anc-list').onclick = e => {
+  const li = e.target.closest('li[data-k]');
+  if (li && !e.target.closest('[data-del]') && anc.frame?.id !== project.refId) { anc.active = +li.dataset.k; renderAnchors(); return; }
+  const k = e.target.closest('[data-del]')?.dataset.del;
+  if (k == null) return;
+  project.anchors.splice(+k, 1);
+  anchorsChanged();
+};
+
+// Antippen = Punkt setzen (nur Referenz), Ziehen = verschieben (relativ, mit Lupe)
+const layer = $('#anchor-layer');
+layer.addEventListener('pointerdown', e => {
+  const f = anc.frame;
+  if (!f) return;
+  const rect = layer.getBoundingClientRect(), m = Math.max(f.w, f.h);
+  const pts = anchorPointsFor(f), isRef = f.id === project.refId;
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  let hit = -1, best = 28;
+  pts.forEach((p, k) => {
+    const d = Math.hypot(p.x * m / f.w * rect.width - sx, p.y * m / f.h * rect.height - sy);
+    if (d < best) { best = d; hit = k; }
+  });
+  const tapX = sx / rect.width * f.w / m, tapY = sy / rect.height * f.h / m;
+  if (!isRef && !f.anchorPts) {
+    if (!project.anchors.length) { toast('Erst im Referenzbild Punkte setzen.'); return; }
+    // noch nicht gesucht: geschätzte Lagen als Platzhalter, nur Handpunkte zählen
+    f.anchorPts = pts.map(p => ({ x: p.x, y: p.y, score: 0, manual: false, pred: true }));
+  }
+  if (!isRef) {
+    const hp = hit >= 0 ? f.anchorPts[hit] : null;
+    if (hp && !hp.pred && hit !== anc.active) {
+      // vorhandenen (gefundenen/gesetzten) Punkt verschieben – relativ zum Finger
+      const p = anchorPointsFor(f)[hit];
+      anc.drag = { k: hit, mode: 'move', cx: e.clientX, cy: e.clientY, ox: p.x, oy: p.y, rect, m, moved: false };
+    } else {
+      // aktiven Punkt genau hier setzen; solange der Finger liegt, folgt er (mit Lupe)
+      if (anc.active < 0) { toast('Alle Punkte sind gesetzt – zum Korrigieren einen Punkt ziehen.'); return; }
+      const k = anc.active;
+      f.anchorPts[k] = { x: tapX, y: tapY, score: 1, manual: true };
+      anc.drag = { k, mode: 'place', cx: e.clientX, cy: e.clientY, ox: tapX, oy: tapY, rect, m, moved: true };
+    }
+    layer.setPointerCapture(e.pointerId);
+    drawLoupe(f.anchorPts[anc.drag.k].x, f.anchorPts[anc.drag.k].y);
+    renderAnchors();
+    return;
+  }
+  if (hit < 0) {
+    if (project.anchors.length >= MAX_ANCHORS) { toast(`Höchstens ${MAX_ANCHORS} Punkte.`); return; }
+    project.anchors.push({ x: tapX, y: tapY });
+    hit = project.anchors.length - 1;
+    anchorsChanged();
+  }
+  const p = anchorPointsFor(f)[hit];
+  anc.drag = { k: hit, mode: 'move', cx: e.clientX, cy: e.clientY, ox: p.x, oy: p.y, rect, m, moved: false };
+  layer.setPointerCapture(e.pointerId);
+  drawLoupe(p.x, p.y);
+  renderAnchors();
+});
+layer.addEventListener('pointermove', e => {
+  const d = anc.drag, f = anc.frame;
+  if (!d) return;
+  const k = d.k;
+  let x = d.ox + (e.clientX - d.cx) / d.rect.width * f.w / d.m;
+  let y = d.oy + (e.clientY - d.cy) / d.rect.height * f.h / d.m;
+  x = Math.max(0, Math.min(f.w / d.m, x)); y = Math.max(0, Math.min(f.h / d.m, y));
+  if (Math.hypot(e.clientX - d.cx, e.clientY - d.cy) > 2) d.moved = true;
+  if (f.id === project.refId) { project.anchors[k].x = x; project.anchors[k].y = y; }
+  else if (d.moved) f.anchorPts[k] = { x, y, score: 1, manual: true };
+  renderAnchors();
+  drawLoupe(x, y);
+});
+const endDrag = () => {
+  const d = anc.drag, f = anc.frame;
+  if (!d) return;
+  anc.drag = null;
+  $('#loupe').hidden = true;
+  if (f.id === project.refId) { if (d.moved) anchorsChanged(); }
+  else if (d.moved) {
+    if (anc.active === d.k) {
+      // weiter zum nächsten noch nicht gesetzten Punkt
+      const next = f.anchorPts.findIndex((p, j) => j > d.k && !p?.manual);
+      anc.active = next >= 0 ? next : f.anchorPts.findIndex(p => !p?.manual);
+      if (anc.active < 0) toast('Alle Punkte gesetzt ✓ – weiter mit „Weiter ›“.');
+    }
+    commitFrameAnchors(f);
+    return;
+  }
+  renderAnchors();
+};
+
+/** Handpunkte eines Fotos übernehmen: Ausrichtung sofort neu berechnen und flächig verfeinern. */
+function commitFrameAnchors(f) {
+  project.applyAnchors(f);
+  project.anchorsActive = true;
+  project.assessQuality();
+  renderAnchors();
+  renderStrip();
+  refineAnchored(project, getAligner(), f).then(() => { project.assessQuality(); renderAnchors(); renderStrip(); }).catch(() => {});
+}
+layer.addEventListener('pointerup', endDrag);
+layer.addEventListener('pointercancel', endDrag);
+
+function drawLoupe(x, y) {
+  const f = anc.frame, c = $('#loupe'), rect = layer.getBoundingClientRect(), m = Math.max(f.w, f.h);
+  const u = x * m / f.w, v = y * m / f.h;
+  const px = u * rect.width, py = v * rect.height;
+  c.hidden = false;
+  c.style.left = Math.max(0, Math.min(rect.width - 120, px - 60)) + 'px';
+  c.style.top = (py - 150 >= 0 ? py - 150 : Math.min(rect.height - 120, py + 30)) + 'px';
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 240, 240);
+  const b = anc.bmp;
+  if (b) {
+    const scale = rect.width / b.width, src = 120 / (3 * scale); // 3-fache Vergrößerung
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(b, u * b.width - src / 2, v * b.height - src / 2, src, src, 0, 0, 240, 240);
+  }
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(120, 90); ctx.lineTo(120, 110); ctx.moveTo(120, 130); ctx.lineTo(120, 150);
+  ctx.moveTo(90, 120); ctx.lineTo(110, 120); ctx.moveTo(130, 120); ctx.lineTo(150, 120); ctx.stroke();
+}
+
+$('#anchor-btn').onclick = () => openAnchors();
+$('#f-anchors').onclick = () => {
+  const f = ui.selected;
+  openAnchors(f && f.anchorPts && f.id !== project.refId ? f : project.ref);
+  if (f && f.id !== project.refId && !project.anchors.length) toast('Erst im Referenzbild Punkte setzen, dann „In allen Fotos suchen“.', 4500);
+};
+$('#anc-done').onclick = () => closeAnchors();
+$('#anc-ref').onclick = () => showAnchorFrame(project.ref);
+$('#anc-prev').onclick = () => { const l = ancFrames(), i = l.indexOf(anc.frame); if (i > 0) showAnchorFrame(l[i - 1]); };
+$('#anc-next').onclick = () => { const l = ancFrames(), i = l.indexOf(anc.frame); if (i < l.length - 1) showAnchorFrame(l[i + 1]); };
+$('#anc-next-bad').onclick = () => {
+  const l = ancFrames(), i = l.indexOf(anc.frame);
+  const bad = g => g.id !== project.refId && g.anchorPts && g.anchorPts.some(p => p.outlier || (!p.manual && p.score < 0.55));
+  const next = [...l.slice(i + 1), ...l.slice(0, i + 1)].find(bad);
+  if (next) showAnchorFrame(next); else toast('Keine unsicheren Punkte mehr – alles geprüft.');
+};
+$('#anc-clear').onclick = () => {
+  if (!confirm('Alle Ankerpunkte löschen? Die automatische Ausrichtung wird wiederhergestellt.')) return;
+  project.resetAnchors(false);
+  renderAnchors();
+};
+$('#anc-off').onclick = () => {
+  project.disableAnchors();
+  project.assessQuality();
+  renderAnchors();
+  toast('Automatische Ausrichtung wiederhergestellt. Die Punkte bleiben gespeichert.');
+};
+$('#anc-track').onclick = async () => {
+  if (!project.anchors.length) return;
+  const weak = project.anchors.filter(a => a.uniq != null && a.uniq < 0.25).length;
+  if (weak && !confirm(`${weak} Punkt(e) liegen auf nicht eindeutigen Stellen und werden evtl. falsch gefunden. Trotzdem suchen?`)) return;
+  progress.open('Ankerpunkte werden gesucht');
+  await keepAwake(true);
+  try {
+    const ok = await trackAllAnchors(project, getAligner(), {
+      isCancelled: () => progress.cancelled,
+      onProgress: (d, t) => progress.set(d / t, `Foto ${d} von ${t}`),
+    });
+    progress.close();
+    if (!ok) { toast('Abgebrochen.'); return; }
+    project.assessQuality();
+    const unsure = ancFrames().filter(g => g.id !== project.refId && g.anchorPts?.some(p => p.outlier || (!p.manual && p.score < 0.55))).length;
+    renderStrip();
+    renderAnchors();
+    toast(unsure ? `Fertig. ${unsure} Foto(s) mit unsicheren Punkten – mit „Nächstes unsicheres Foto“ prüfen.` : 'Fertig – alle Punkte sicher gefunden.', 5000);
+  } catch (err) {
+    progress.close();
+    console.error(err);
+    toast('Fehler bei der Suche: ' + err.message, 6000);
+  } finally {
+    keepAwake(false);
+  }
+};
+
 // ---------------------------------------------------------------- Einstellungen (generisch)
 
 const OUT = {
@@ -577,8 +896,8 @@ const OUT = {
 const HELP = {
   model: {
     translation: 'Für Stativaufnahmen: Nur Verschiebungen werden korrigiert – am stabilsten.',
-    similarity: 'Korrigiert Verschiebung, Drehung und leichten Zoom. Für die meisten Aufnahmen richtig.',
-    homography: 'Korrigiert zusätzlich die Perspektive – für Aufnahmen aus der Hand oder von leicht wechselnden Standpunkten.',
+    similarity: 'Korrigiert Verschiebung, Drehung, Zoom und leichte Verzerrung – für Stativ mit leichtem Wackeln.',
+    homography: 'Korrigiert zusätzlich die Perspektive – richtig für Aufnahmen aus der Hand (empfohlen).',
   },
   colorMode: {
     off: 'Fotos bleiben unverändert (nur deine manuellen Korrekturen wirken).',
@@ -601,7 +920,7 @@ function syncSettingsUI() {
     const [, k, op, v] = el.dataset.if.match(/(\w+)(==|!=)(\w+)/);
     el.hidden = op === '==' ? String(s[k]) !== v : String(s[k]) === v;
   });
-  const names = { translation: 'Stativ', similarity: 'Standard', homography: 'Freihand' };
+  const names = { translation: 'Stativ', similarity: 'Leicht bewegt', homography: 'Freihand' };
   $('#align-summary').textContent = `· ${names[s.model]}, ${s.precision === 'precise' ? 'präzise' : 'schnell'}`;
 }
 
@@ -925,4 +1244,4 @@ syncSettingsUI();
 updatePrimary();
 
 // Für Tests/Fehlersuche
-window.__lapse = { project, ui, DEFAULT_SETTINGS };
+window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner };

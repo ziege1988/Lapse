@@ -110,17 +110,41 @@ export function sortFrames(project, mode) {
   return mode;
 }
 
-const GOOD_INLIERS = 30;
+// Auflösung der Graubilder für flächenbasierte Ausrichtung und Ankerpunkte
+export const DIRECT_RES = 640;
 
-/** Richtet alle Bilder auf das Referenzbild aus (mit Rückfall über Nachbarbilder). */
+/** Graubild aus dem Vorschaubild (schnell, kein erneutes Dekodieren des Originals). */
+async function grayFromPreview(f, res = DIRECT_RES) {
+  const bmp = await createImageBitmap(f.previewBlob);
+  const c = scaleTo(bmp, res);
+  bmp.close?.();
+  const g = grayOf(c);
+  freeCanvas(c);
+  return g;
+}
+
+/** Referenzbild im Worker hinterlegen (für flächenbasierte Ausrichtung und Ankerpunkte). */
+export async function setReference(project, aligner) {
+  const ref = project.ref;
+  if (!ref || aligner.refSet === ref.id) return;
+  const g = await grayFromPreview(ref);
+  await aligner.call({ type: 'setRef', id: ref.id, gray: g.gray.buffer, w: g.w, h: g.h }, [g.gray.buffer]);
+  aligner.refSet = ref.id;
+}
+
+/** Richtet alle Bilder auf das Referenzbild aus. */
 export async function alignAll(project, aligner, { onProgress, isCancelled } = {}) {
+  const prevRef = project.refId;
   project.chooseReference();
   const ref = project.ref;
   const list = project.frames.filter(f => f.featRes > 0);
   const ri = list.indexOf(ref);
   if (ri < 0) throw new Error('Referenzbild hat keine Merkmale.');
-  ref.align = { ok: true, H: I3(), inliers: Infinity, total: 0, rms: 0, via: null };
-  // Von der Referenz nach außen arbeiten, damit Nachbarn schon ausgerichtet sind
+  // Ankerpunkte bleiben nur bei gleicher Referenz erhalten (müssen neu gesucht werden)
+  project.resetAnchors(prevRef === project.refId);
+  await setReference(project, aligner);
+  ref.align = { ok: true, H: I3(), inliers: Infinity, total: 0, rms: 0, ncc: 1, method: 'ref', via: null };
+  // Von der Referenz nach außen arbeiten, damit Nachbarn als Startwert dienen können
   const order = [];
   for (let d = 1; d < list.length; d++) {
     if (ri - d >= 0) order.push([ri - d, +1]);
@@ -130,14 +154,14 @@ export async function alignAll(project, aligner, { onProgress, isCancelled } = {
   for (const [i, toward] of order) {
     if (isCancelled?.()) return false;
     const f = list[i];
-    f.align = await alignOne(project, aligner, f, list[i + toward], {});
+    f.align = await alignOne(project, aligner, f, list[i + toward]);
     onProgress?.(++done, order.length);
   }
   // Nicht ausrichtbare Fotos automatisch ausschließen (können manuell wieder aufgenommen werden)
   const auto = [];
   for (const f of list) {
     if (f === ref) continue;
-    const unreliable = !f.align.ok || f.align.inliers < 12;
+    const unreliable = !f.align.ok;
     if (unreliable && !f.excluded && !f.keepIncluded) { f.excluded = true; f.autoExcluded = true; auto.push(f); }
     else if (!unreliable && f.autoExcluded) { f.excluded = false; f.autoExcluded = false; }
   }
@@ -145,26 +169,30 @@ export async function alignAll(project, aligner, { onProgress, isCancelled } = {
   return auto;
 }
 
-async function alignOne(project, aligner, f, neighbor, { iterations, threshPx, model } = {}) {
-  const ref = project.ref;
-  model = model || project.settings.model;
-  const direct = await aligner.call({ type: 'align', id: f.id, refId: ref.id, model, iterations, threshPx });
-  let best = direct.ok ? { ...direct, via: null } : null;
-  if ((!best || best.inliers < GOOD_INLIERS) && neighbor && neighbor !== ref && neighbor.align?.ok) {
-    const r = await aligner.call({ type: 'align', id: f.id, refId: neighbor.id, model, iterations, threshPx });
-    if (r.ok && r.inliers > (best ? best.inliers * 1.3 : 0)) {
-      best = { ...r, H: mul(neighbor.align.H, r.H), via: neighbor.id, inliers: Math.min(r.inliers, neighbor.align.inliers) };
+async function alignOne(project, aligner, f, neighbor, { thorough = false } = {}) {
+  const ref = project.ref, model = project.settings.model;
+  await setReference(project, aligner);
+  const g = await grayFromPreview(f);
+  const inits = [];
+  if (neighbor?.align?.ok) inits.push(neighbor.align.H);   // Nachbarbild ist meist sehr ähnlich
+  if (f.align?.ok) inits.push(f.align.H);
+  const r = await aligner.call({
+    type: 'align', id: f.id, refId: ref.id, model, gray: g.gray.buffer, w: g.w, h: g.h, inits, thorough,
+    iterations: thorough ? 5000 : undefined, threshPx: thorough ? 2.0 : undefined,
+  }, [g.gray.buffer]);
+  if (r.ok) return { ok: true, H: r.H, inliers: r.inliers, total: r.total, rms: r.rms, ncc: r.ncc, method: r.method, via: null };
+  // Rückfall: Merkmale zum Nachbarbild, verkettet
+  if (neighbor && neighbor !== ref && neighbor.align?.ok) {
+    const c = await aligner.call({ type: 'align', id: f.id, refId: neighbor.id, model });
+    if (c.ok && c.inliers >= 20) {
+      return { ok: true, H: mul(neighbor.align.H, c.H), inliers: c.inliers, total: c.total, rms: c.rms, ncc: null, method: 'kette', via: neighbor.id };
     }
   }
-  if (!best) {
-    // Rückfall: Transformation des Nachbarn übernehmen (Bild wird markiert)
-    const H = neighbor?.align?.H ? neighbor.align.H.slice() : I3();
-    return { ok: false, H, inliers: 0, total: direct.matches || 0, rms: Infinity, via: neighbor?.id || null };
-  }
-  return { ok: true, H: best.H, inliers: best.inliers, total: best.total, rms: best.rms, via: best.via };
+  const H = neighbor?.align?.H ? neighbor.align.H.slice() : I3();
+  return { ok: false, H, inliers: 0, total: r.total || r.matches || 0, rms: Infinity, ncc: r.ncc, method: r.method, via: neighbor?.id || null };
 }
 
-/** Präzise Neuausrichtung eines Bildes: höhere Auflösung, mehr Merkmale, mehr Iterationen. */
+/** Präzise Neuausrichtung eines Bildes: mehr Merkmale, gründlichere Flächensuche. */
 export async function refineFrame(project, aligner, f) {
   const ref = project.ref;
   const need = ANALYSIS.refine.res;
@@ -177,12 +205,96 @@ export async function refineFrame(project, aligner, f) {
   const inc = project.frames.filter(x => x.featRes > 0);
   const i = inc.indexOf(f), ri = inc.indexOf(ref);
   const neighbor = inc[i + (ri > i ? 1 : -1)];
-  const r = await alignOne(project, aligner, f, neighbor, { iterations: 5000, threshPx: 2.0 });
-  // Nur übernehmen, wenn nicht schlechter
   const old = f.align;
-  if (!old || !old.ok || (r.ok && r.inliers * (old.rms || 1) >= old.inliers * 0.8 * (r.rms || 1)) || r.inliers > old.inliers) f.align = r;
+  const r = await alignOne(project, aligner, f, neighbor, { thorough: true });
+  // Nur übernehmen, wenn nicht schlechter
+  const q = a => (a?.ok ? (a.ncc ?? 0) + Math.min(a.inliers || 0, 200) / 1000 : -1);
+  if (q(r) >= q(old) - 1e-4) f.align = r;
   f.manualChecked = false;
   return f.align;
+}
+
+// ---------- Ankerpunkte ----------
+
+/** Eindeutigkeit der Ankerpunkte im Referenzbild (0..1). */
+export async function anchorUniqueness(project, aligner) {
+  await setReference(project, aligner);
+  const r = await aligner.call({ type: 'uniq', refId: project.refId, anchors: project.anchors.map(a => ({ x: a.x, y: a.y })) });
+  r.values?.forEach((v, k) => { if (project.anchors[k]) Object.assign(project.anchors[k], { uniq: v.value, uniqReason: v.reason }); });
+}
+
+/**
+ * Verfeinert die Ausrichtung aus Ankerpunkten per Flächenvergleich (Perspektive, Subpixel).
+ * Übernahme nur, wenn sie flächig nicht schlechter ist und die Punkte grob passen
+ * (gefundene Punkte: 4 % der Bildgröße, von Hand gesetzte: 1 %).
+ */
+export async function refineAnchored(project, aligner, f) {
+  const a = f.align;
+  if (!a?.ok || a.method !== 'anker' || f.id === project.refId || !f.anchorHyps?.length) return false;
+  await setReference(project, aligner);
+  const hyps = f.anchorHyps.map(h => ({
+    H: h.H,
+    pairs: h.set.map(k => ({ fx: f.anchorPts[k].x, fy: f.anchorPts[k].y, rx: project.anchors[k].x, ry: project.anchors[k].y })),
+  }));
+  const g = await grayFromPreview(f);
+  const manual = f.anchorPts.some(p => p?.manual);
+  const tolPx = (manual ? 0.01 : 0.04) * DIRECT_RES;
+  const r = await aligner.call({ type: 'refineAnchored', refId: project.refId, gray: g.gray.buffer, w: g.w, h: g.h, hyps, model: project.settings.model, tolPx }, [g.gray.buffer]);
+  if (f.align !== a || !r.ok) return false; // inzwischen geändert (z. B. erneut gezogen)
+  // Passt die automatische Ausrichtung flächig klar besser, bleibt sie – außer der Nutzer
+  // hat Punkte von Hand gesetzt (dann gilt seine Vorgabe).
+  const auto = f.autoAlign;
+  if (!manual && auto?.ok && auto.ncc != null && auto.ncc >= 0.85 && auto.ncc > (r.ncc ?? 0) + 0.02) {
+    project.keepAutoOverAnchors(f);
+    return false;
+  }
+  project.chooseAnchorHyp(f, r.idx, r.H, r.ncc);
+  f.align.refined = r.refined;
+  return true;
+}
+
+/** Sucht die Ankerpunkte in allen Fotos und richtet danach aus. */
+export async function trackAllAnchors(project, aligner, { onProgress, isCancelled } = {}) {
+  const ref = project.ref;
+  await setReference(project, aligner);
+  const list = project.frames.filter(f => f.featRes > 0);
+  const ri = list.indexOf(ref);
+  const order = [];
+  for (let d = 1; d < list.length; d++) {
+    if (ri - d >= 0) order.push([ri - d, +1]);
+    if (ri + d < list.length) order.push([ri + d, -1]);
+  }
+  const anchors = project.anchors.map(a => ({ x: a.x, y: a.y }));
+  const trackOne = async (f, pred) => {
+    const g = await grayFromPreview(f);
+    const r = await aligner.call({ type: 'track', id: f.id, refId: ref.id, gray: g.gray.buffer, w: g.w, h: g.h, anchors, predH: pred }, [g.gray.buffer]);
+    const old = f.anchorPts || [];
+    f.anchorPts = r.points.map((p, k) => (old[k]?.manual ? old[k] : { x: p.x, y: p.y, score: p.score, manual: false }));
+    project.applyAnchors(f);
+    await refineAnchored(project, aligner, f);
+  };
+  // 1. Durchgang: Vorhersage aus eigener Automatik, sonst vom Nachbarn
+  const second = [];
+  let done = 0;
+  const total = order.length;
+  for (const [i, toward] of order) {
+    if (isCancelled?.()) return false;
+    const f = list[i], nb = list[i + toward];
+    const auto = f.autoAlign || f.align;
+    const reliable = auto?.ok && (auto.ncc ?? 0) >= 0.85;
+    const pred = auto?.ok ? auto.H : (nb.align?.ok ? nb.align.H : null);
+    await trackOne(f, pred);
+    if (!reliable && f.align?.ok) second.push(f);
+    onProgress?.(++done, total + second.length);
+  }
+  // 2. Durchgang: mit der jetzt guten Lage als Vorhersage -> Punkte subpixelgenau
+  for (const f of second) {
+    if (isCancelled?.()) return false;
+    await trackOne(f, f.align.H);
+    onProgress?.(++done, total + second.length);
+  }
+  project.anchorsActive = true;
+  return true;
 }
 
 /**

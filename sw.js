@@ -5,7 +5,7 @@ const VERSION = 'lapse-__BUILD__';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/project.js', 'js/pipeline.js', 'js/player.js', 'js/renderer.js', 'js/export.js',
-  'js/geometry.js', 'js/version.js', 'js/features.js', 'js/align-worker.js', 'js/images.js', 'js/exif.js', 'js/zip.js',
+  'js/geometry.js', 'js/version.js', 'js/direct.js', 'js/anchors.js', 'js/features.js', 'js/align-worker.js', 'js/images.js', 'js/exif.js', 'js/zip.js',
   'vendor/mp4-muxer.mjs', 'vendor/webm-muxer.mjs', 'vendor/gifenc.esm.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];

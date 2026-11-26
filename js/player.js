@@ -2,6 +2,7 @@
 // zeigt Einzelbilder und Vergleichsansichten zur Referenz.
 
 import { Renderer } from './renderer.js';
+import { I3 } from './geometry.js';
 
 const CACHE = 48;
 
@@ -55,6 +56,11 @@ export class Player {
   /** Ebenen für den aktuellen Zustand bestimmen. */
   layers() {
     const p = this.project;
+    if (this.inspect?.raw) {
+      // ganzes Foto ohne Zuschnitt/Korrektur (zum Setzen von Ankerpunkten)
+      const f = this.inspect.frame;
+      return { layers: [{ key: 'p' + f.id, frame: f, M: I3(), weight: 1 }], mode: 'normal', neutral: true };
+    }
     if (!p.crop) return { layers: [], mode: 'normal' };
     if (this.inspect) {
       const { frame, compare } = this.inspect;
@@ -162,6 +168,13 @@ export class Player {
     if (compare === 'blink') {
       this._blinkTimer = setInterval(() => { this._blink ^= 1; this.render(); }, 450);
     }
+    this.render();
+  }
+
+  showRaw(frame) {
+    this.pause();
+    clearInterval(this._blinkTimer);
+    this.inspect = { frame, raw: true };
     this.render();
   }
 

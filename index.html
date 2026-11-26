@@ -60,7 +60,7 @@
             <span class="label">Aufnahmeart</span>
             <div class="seg" data-set="model">
               <button data-v="translation">Stativ</button>
-              <button data-v="similarity">Standard</button>
+              <button data-v="similarity">Leicht bewegt</button>
               <button data-v="homography">Freihand</button>
             </div>
             <p class="help" data-help="model"></p>
@@ -95,6 +95,8 @@
           <canvas id="preview"></canvas>
           <div class="stage-badge" id="stage-badge" hidden></div>
           <div class="recalc" id="recalc" hidden><i></i>Wird neu berechnet …</div>
+          <div class="anchor-layer" id="anchor-layer" hidden></div>
+          <canvas class="loupe" id="loupe" width="240" height="240" hidden></canvas>
         </div>
       </div>
       <div class="transport">
@@ -108,7 +110,10 @@
 
       <div class="strip-head">
         <span class="muted" id="strip-info"></span>
-        <button class="btn small warn" id="fix-flagged" hidden></button>
+        <div class="strip-actions">
+          <button class="btn small warn" id="fix-flagged" hidden></button>
+          <button class="btn small" id="anchor-btn" title="Markante Stellen setzen und in allen Fotos suchen">Ankerpunkte</button>
+        </div>
       </div>
       <div class="strip" id="strip" role="listbox" aria-label="Bilder"></div>
       <div class="notice" id="notice" hidden>
@@ -117,6 +122,32 @@
           <button class="btn small" id="notice-view">Ansehen</button>
           <button class="btn small" id="notice-exclude">Ausschließen</button>
           <button class="btn small ghost" id="notice-keep">Behalten</button>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-anchors" hidden>
+        <div class="anc-head">
+          <div>
+            <b id="anc-title">Ankerpunkte</b>
+            <div class="muted small" id="anc-pos"></div>
+          </div>
+          <button class="btn small primary" id="anc-done">Fertig</button>
+        </div>
+        <div class="anc-intro">
+          <div class="anc-mini" id="anc-mini" hidden></div>
+          <p class="help" id="anc-help"></p>
+        </div>
+        <div class="anc-nav">
+          <button class="btn small" id="anc-prev" aria-label="Vorheriges Foto">‹ Zurück</button>
+          <button class="btn small" id="anc-ref">Referenz</button>
+          <button class="btn small" id="anc-next" aria-label="Nächstes Foto">Weiter ›</button>
+        </div>
+        <ol class="anc-list" id="anc-list"></ol>
+        <div class="btn-grid">
+          <button class="btn primary" id="anc-track">In allen Fotos suchen</button>
+          <button class="btn" id="anc-next-bad">Nächstes unsicheres Foto</button>
+          <button class="btn ghost" id="anc-clear">Alle Punkte löschen</button>
+          <button class="btn ghost" id="anc-off">Ankerpunkte nicht verwenden</button>
         </div>
       </div>
 
@@ -239,6 +270,7 @@
             <button class="btn" id="f-ok">Als geprüft markieren</button>
             <button class="btn" id="f-ref">Als Referenz setzen</button>
             <button class="btn" id="f-exclude">Foto ausschließen</button>
+            <button class="btn" id="f-anchors">Mit Ankerpunkten ausrichten</button>
             <button class="btn ghost" id="f-prev">‹ Vorheriges Foto</button>
             <button class="btn ghost" id="f-next">Nächstes Foto ›</button>
             <button class="btn ghost" id="f-reset">Korrekturen zurücksetzen</button>

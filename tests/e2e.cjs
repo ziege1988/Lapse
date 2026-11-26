@@ -51,6 +51,63 @@ async function makePhotos(page, N) {
   }, N);
 }
 
+// Handaufnahmen eines Tellers: wenig Struktur, Perspektive, Zoom, Drehung, schmelzende Butter
+async function makePlatePhotos(page, N) {
+  return page.evaluate(async N => {
+    const G = await import('./js/geometry.js');
+    let s = 5; const r = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
+    const W = 1800, H = 2400, OW = 900, OH = 1200, out = [];
+    for (let n = 0; n < N; n++) {
+      const sc = document.createElement('canvas'); sc.width = W; sc.height = H; const g = sc.getContext('2d');
+      let s2 = 99; const r2 = () => ((s2 = (s2 * 1103515245 + 12345) >>> 0) / 4294967296);
+      for (let y = 0; y < H; y++) { const v = 55 + 22 * Math.sin(y * 0.018 + Math.sin(y * 0.004) * 3) + r2() * 12; g.fillStyle = `rgb(${v + 45},${v + 18},${v - 8})`; g.fillRect(0, y, W, 1); }
+      for (let k = 0; k < 40; k++) { g.fillStyle = `rgba(30,15,5,${0.2 + r2() * 0.3})`; g.beginPath(); g.ellipse(r2() * W, r2() * H, 4 + r2() * 30, 2 + r2() * 6, r2(), 0, 7); g.fill(); }
+      g.fillStyle = '#5a3a22'; g.beginPath(); g.arc(W / 2, H / 2, 820, 0, 7); g.fill();
+      const grd = g.createRadialGradient(W / 2 - 120, H / 2 - 170, 60, W / 2, H / 2, 760); grd.addColorStop(0, '#ebe8e3'); grd.addColorStop(1, '#cfcac3');
+      g.fillStyle = grd; g.beginPath(); g.arc(W / 2, H / 2, 750, 0, 7); g.fill();
+      for (const [x, y, a] of [[620, 720, 1], [1100, 600, 2], [1300, 1300, 0.5], [850, 1650, 2.5], [720, 1250, 1.7]]) { g.save(); g.translate(x, y); g.rotate(a); g.fillStyle = '#e8d9b5'; g.beginPath(); g.ellipse(0, 0, 80, 52, 0, 0, 7); g.fill(); g.strokeStyle = '#b59a6a'; g.lineWidth = 5; g.stroke(); g.restore(); }
+      const m = n * 14;
+      g.fillStyle = '#f2c230'; g.beginPath(); g.moveTo(850 - m, 1000 - m); g.lineTo(1060 + m, 950); g.lineTo(1080 + m, 1180 + m); g.lineTo(870, 1230 + m); g.fill();
+      const src = g.getImageData(0, 0, W, H).data;
+      const rot = (r() - 0.5) * 10, zoom = 0.9 + r() * 0.2, tx = (r() - 0.5) * 180, ty = (r() - 0.5) * 220;
+      const px = (r() - 0.5) * 3.2e-4, py = (r() - 0.5) * 3.2e-4, gain = 0.75 + r() * 0.5;
+      let M = G.mul([W / OW, 0, 0, 0, H / OH, 0, 0, 0, 1], G.similarityAbout(OW / 2, OH / 2, tx * OW / W, ty * OH / H, rot, 1 / zoom));
+      M = G.mul(M, G.mul(G.translate(OW / 2, OH / 2), G.mul([1, 0, 0, 0, 1, 0, px, py, 1], G.translate(-OW / 2, -OH / 2))));
+      const oc = document.createElement('canvas'); oc.width = OW; oc.height = OH; const ox = oc.getContext('2d');
+      const id = ox.createImageData(OW, OH), d = id.data;
+      for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) {
+        const [u, v] = G.apply(M, x, y), o = 4 * (y * OW + x);
+        if (u >= 0 && v >= 0 && u < W - 1 && v < H - 1) {
+          const x0 = u | 0, y0 = v | 0, a = u - x0, c = v - y0, i = 4 * (y0 * W + x0);
+          for (let ch = 0; ch < 3; ch++) d[o + ch] = ((src[i + ch] * (1 - a) + src[i + 4 + ch] * a) * (1 - c) + (src[i + 4 * W + ch] * (1 - a) + src[i + 4 * W + 4 + ch] * a) * c) * gain + (r() - 0.5) * 6;
+        }
+        d[o + 3] = 255;
+      }
+      ox.putImageData(id, 0, 0);
+      const blob = await new Promise(res => oc.toBlob(res, 'image/jpeg', 0.9));
+      const u8 = new Uint8Array(await blob.arrayBuffer()); let bin = ''; for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+      out.push(btoa(bin));
+    }
+    return out;
+  }, N);
+}
+
+async function plateScenario(browser, base, check) {
+  const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto(base);
+  const photos = await makePlatePhotos(page, 12);
+  await page.setInputFiles('#file', photos.map((b, i) => ({ name: `IMG_${9363 + i}.jpeg`, mimeType: 'image/jpeg', buffer: Buffer.from(b, 'base64') })));
+  await page.waitForFunction(() => document.querySelector('#progress').hidden, null, { timeout: 120000 });
+  await page.click('#primary');
+  await page.waitForFunction(() => !document.querySelector('#view-edit').hidden && document.querySelector('#progress').hidden, null, { timeout: 300000 });
+  const res = await page.evaluate(() => window.__lapse.project.frames.map(f => ({ ok: f.align.ok, ex: f.excluded, ncc: f.align.ncc })));
+  const good = res.filter(r => r.ok && !r.ex).length;
+  check(good === res.length, `Teller aus der Hand: ${good} von ${res.length} Fotos ausgerichtet (min. Übereinstimmung ${Math.round(Math.min(...res.map(r => r.ncc ?? 1)) * 100)} %)`);
+  check(!errors.length, `Teller-Szenario ohne Browserfehler${errors.length ? ': ' + errors.join(' | ') : ''}`);
+}
+
 (async () => {
   const srv = await serve();
   const base = `http://localhost:${srv.address().port}/index.html`;
@@ -107,6 +164,7 @@ async function makePhotos(page, N) {
       const sized = await exportMp4();
       check(sized <= target * 1e6 * 1.05, `Zielgröße eingehalten (Ziel ${target} MB, Ergebnis ${(sized / 1e6).toFixed(2)} MB; Anzeige: ${est.replace(/\s+/g, ' ')})`);
     }
+    await plateScenario(browser, base, check);
     check(!errors.length, `keine Browserfehler${errors.length ? ': ' + errors.join(' | ') : ''}`);
   } finally {
     await browser.close();

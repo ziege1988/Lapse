@@ -1,11 +1,11 @@
 // Projektmodell: Bilder, Einstellungen und alle daraus abgeleiteten Berechnungen
 // (Gesamttransformation, Zuschnitt, Farbangleich, Zeitplan des Videos).
 
-import { mul, inv, apply, similarityAbout, largestRect, quadOf, isConvexQuad, halfPlanes, I3 } from './geometry.js';
+import { mul, inv, apply, similarityAbout, largestRect, quadOf, isConvexQuad, halfPlanes, fitModel, I3 } from './geometry.js';
 
 export const DEFAULT_SETTINGS = {
   // Ausrichtung
-  model: 'similarity',      // translation | similarity | homography
+  model: 'homography',      // translation (Stativ) | similarity (leicht bewegt) | homography (Freihand)
   precision: 'fast',        // fast | precise
   refMode: 'middle',        // middle | first | last | manual
   // Bild
@@ -37,6 +37,8 @@ export class Project {
     this.refId = null;
     this.crop = null;
     this.aligned = false;
+    this.anchors = [];          // Ankerpunkte im Referenzbild (kanonisch): [{x, y, uniq}]
+    this.anchorsActive = false; // Ausrichtung kommt aus den Ankerpunkten
   }
 
   get included() { return this.frames.filter(f => !f.excluded); }
@@ -236,21 +238,173 @@ export class Project {
     inc.forEach((f, i) => {
       const a = f.align;
       let q = 'good', note = '';
+      if (f.id === this.refId) { f.quality = 'good'; f.qualityNote = ''; return; }
       if (!a || !a.ok) { q = 'bad'; note = 'Keine sichere Ausrichtung gefunden'; }
-      else if (f.id !== this.refId && (a.inliers < 15 || a.rms > 3)) { q = 'bad'; note = 'Sehr wenige übereinstimmende Punkte'; }
-      else if (f.id !== this.refId && (a.inliers < 40 || a.rms > 1.8)) { q = 'warn'; note = 'Ausrichtung unsicher'; }
-      // Sprungerkennung: Abstand zum Median der Nachbarn
-      const nb = [];
-      for (let j = Math.max(0, i - 3); j <= Math.min(inc.length - 1, i + 3); j++) if (j !== i) nb.push(centers[j]);
-      if (nb.length >= 2 && q !== 'bad') {
-        const med = k => nb.map(c => c[k]).sort((x, y) => x - y)[nb.length >> 1];
-        const d = Math.hypot(centers[i][0] - med(0), centers[i][1] - med(1));
-        if (d > 0.04 * rw) { q = 'warn'; note = 'Sprung gegenüber Nachbarbildern'; }
+      else if (a.method === 'anker') {
+        if (a.used < Math.min(2, this.anchors.length)) { q = 'bad'; note = 'Zu wenige Ankerpunkte gefunden'; }
+        else if (a.anchorScore < 0.55) { q = 'warn'; note = 'Ankerpunkt unsicher gefunden – bitte prüfen'; }
+        else if (a.outliers) { q = 'warn'; note = 'Ein Ankerpunkt passt nicht zu den anderen – bitte prüfen'; }
+      } else if (a.anchorsRejected) {
+        q = 'warn'; note = 'Ankerpunkte passen nicht zum Bild (bewegt sich etwas?) – automatische Ausrichtung beibehalten';
+      } else if (a.ncc != null) {
+        // Flächenvergleich mit der Referenz (1 = identisch)
+        if (a.ncc < 0.6) { q = 'bad'; note = 'Geringe Übereinstimmung mit der Referenz'; }
+        else if (a.ncc < 0.8 && !(a.inliers >= 40)) { q = 'warn'; note = 'Ausrichtung unsicher'; }
+      } else {
+        if (a.inliers < 15 || a.rms > 3) { q = 'bad'; note = 'Sehr wenige übereinstimmende Punkte'; }
+        else if (a.inliers < 40 || a.rms > 1.8) { q = 'warn'; note = 'Ausrichtung unsicher'; }
+        // Ohne Flächenprüfung: Sprung gegenüber Nachbarn als Warnsignal
+        const nb = [];
+        for (let j = Math.max(0, i - 3); j <= Math.min(inc.length - 1, i + 3); j++) if (j !== i) nb.push(centers[j]);
+        if (nb.length >= 2 && q === 'good') {
+          const med = k => nb.map(c => c[k]).sort((x, y) => x - y)[nb.length >> 1];
+          if (Math.hypot(centers[i][0] - med(0), centers[i][1] - med(1)) > 0.04 * rw) { q = 'warn'; note = 'Sprung gegenüber Nachbarbildern'; }
+        }
       }
       f.quality = f.manualChecked ? 'good' : q;
       f.qualityNote = note;
     });
   }
+
+  // ---------- Ankerpunkte ----------
+
+  /** Ankerpunkte zurücksetzen; keepPoints: Punkte im Referenzbild behalten. */
+  resetAnchors(keepPoints = true) {
+    for (const f of this.frames) {
+      if (this.anchorsActive && f.autoAlign) f.align = f.autoAlign;
+      f.autoAlign = null;
+      f.anchorPts = null;
+    }
+    this.anchorsActive = false;
+    if (!keepPoints) this.anchors = [];
+  }
+
+  /** Ankerpunkte nicht mehr verwenden (automatische Ausrichtung wiederherstellen). */
+  disableAnchors() {
+    for (const f of this.frames) if (f.autoAlign) { f.align = f.autoAlign; f.autoAlign = null; }
+    this.anchorsActive = false;
+  }
+
+  /**
+   * Transformation eines Fotos aus seinen Ankerpunkten (Bild -> Referenz, kanonisch).
+   * Modell je nach Punktzahl: 1 Verschiebung, 2 Ähnlichkeit, 3 affin, ab 4 Perspektive.
+   * Unsichere Punkte (Score < 0,3) werden ignoriert, Ausreißer ab 4 Punkten verworfen.
+   */
+  anchorFit(f) {
+    const pts = f.anchorPts || [];
+    const cand = [];
+    pts.forEach((p, k) => { if (p && this.anchors[k] && (p.manual || p.score >= 0.3)) cand.push(k); });
+    for (const p of pts) if (p) p.outlier = false;
+    if (!cand.length) return null;
+    const src = [], dst = [];
+    pts.forEach((p, k) => { src.push(p?.x ?? 0, p?.y ?? 0); dst.push(this.anchors[k]?.x ?? 0, this.anchors[k]?.y ?? 0); });
+    const resid = (H, k) => { const [x, y] = apply(H, src[2 * k], src[2 * k + 1]); return Math.hypot(x - dst[2 * k], y - dst[2 * k + 1]); };
+    // Konsens: welche Punkte passen geometrisch zusammen? (Ähnlichkeit aus je zwei Punkten)
+    // Punkte auf sich bewegenden/verändernden Dingen fallen dabei heraus.
+    const TOL = 0.01; // ca. 1 % der langen Bildkante (Rest übernimmt der Flächenvergleich)
+    // Alle gleich großen Konsens-Gruppen sammeln; bei Gleichstand entscheidet später das Bild selbst
+    let groups = [cand];
+    if (cand.length >= 3) {
+      const found = new Map();
+      for (let i = 0; i < cand.length; i++) for (let j = i + 1; j < cand.length; j++) {
+        const Hs = fitModel('similarity', src, dst, [cand[i], cand[j]]);
+        if (!Hs) continue;
+        const set = cand.filter(k => resid(Hs, k) < TOL || (pts[k].manual && resid(Hs, k) < TOL * 1.5));
+        if (set.length >= 2) found.set(set.join(','), set);
+      }
+      const all = [...found.values()];
+      if (all.length) {
+        const rank = set => [set.length, set.filter(k => pts[k].manual).length];
+        all.sort((a, b) => { const ra = rank(a), rb = rank(b); return rb[0] - ra[0] || rb[1] - ra[1]; });
+        const top = rank(all[0]);
+        groups = all.filter(g => { const r = rank(g); return r[0] === top[0] && r[1] === top[1]; }).slice(0, 6);
+        // innerhalb des Gleichstands vorläufig: sicherer gefundene zuerst
+        const sc = g => g.reduce((a, k) => a + (pts[k].manual ? 1 : pts[k].score), 0);
+        groups.sort((a, b) => sc(b) - sc(a));
+      }
+    }
+    const modelFor = n => {
+      const m = n <= 1 ? 'translation' : n <= 3 ? 'similarity' : n <= 5 ? 'affine' : 'homography';
+      if (this.settings.model === 'translation') return 'translation';
+      if (this.settings.model === 'similarity' && m === 'homography') return 'affine';
+      return m;
+    };
+    const hyps = groups.map(set => ({ set, H: fitModel(modelFor(set.length), src, dst, set) })).filter(h => h.H);
+    if (!hyps.length) return null;
+    return { hyps, cand, used: hyps[0].set.length };
+  }
+
+  /** Markiert Ausreißer und liefert Kennzahlen für eine gewählte Punktgruppe. */
+  _useHyp(f, cand, hyp) {
+    const pts = f.anchorPts;
+    for (const k of cand) pts[k].outlier = !hyp.set.includes(k);
+    const scores = hyp.set.map(k => (pts[k].manual ? 1 : pts[k].score));
+    return { used: hyp.set.length, outliers: cand.length - hyp.set.length, anchorScore: Math.min(...scores) };
+  }
+
+  /** Ausrichtung eines Fotos aus den Ankerpunkten übernehmen. */
+  applyAnchors(f) {
+    if (f.id === this.refId) return;
+    const fit = this.anchorFit(f);
+    if (!f.autoAlign) f.autoAlign = f.align;
+    const auto = f.autoAlign;
+    f.anchorHyps = fit ? fit.hyps : null;
+    f.anchorCand = fit ? fit.cand : null;
+    if (!fit) { f.align = { ...(auto || {}), ok: false, method: 'anker', used: 0, anchorScore: 0 }; return; }
+    // Bestätigt eine Punktgruppe die automatische Ausrichtung, bleibt diese (genauer, nutzt alle Pixel)
+    const confirmed = auto?.ok && fit.hyps.find(h => h.set.length >= 2 && h.set.every(k => {
+      const p = f.anchorPts[k], a = this.anchors[k];
+      const [x, y] = apply(auto.H, p.x, p.y);
+      return Math.hypot(x - a.x, y - a.y) < 0.006;
+    }));
+    if (confirmed) {
+      const info = this._useHyp(f, fit.cand, confirmed);
+      f.align = { ...auto, confirmedByAnchors: true, ...info };
+    } else {
+      const info = this._useHyp(f, fit.cand, fit.hyps[0]);
+      f.align = { ok: true, H: fit.hyps[0].H, method: 'anker', ...info, inliers: info.used, rms: 0, ncc: null, via: null };
+    }
+    f.manual = { ...f.manual, dx: 0, dy: 0, rot: 0, scale: 1 };
+    this._maybeInclude(f);
+  }
+
+  /** Automatisch ausgeschlossene Fotos wieder aufnehmen, sobald die Punkte sicher sind. */
+  _maybeInclude(f) {
+    const a = f.align;
+    if (f.autoExcluded && a?.ok && a.anchorScore >= 0.55 && a.used >= Math.min(2, this.anchors.length)) { f.excluded = false; f.autoExcluded = false; }
+  }
+
+  /** Automatik behalten; Punkte, die ihr widersprechen, als Ausreißer markieren. */
+  keepAutoOverAnchors(f) {
+    const auto = f.autoAlign;
+    let used = 0;
+    for (const k of f.anchorCand || []) {
+      const p = f.anchorPts[k], a = this.anchors[k];
+      const [x, y] = apply(auto.H, p.x, p.y);
+      p.outlier = Math.hypot(x - a.x, y - a.y) >= 0.006;
+      if (!p.outlier) used++;
+    }
+    f.align = { ...auto, confirmedByAnchors: used >= 2, anchorsRejected: used < 2, used, outliers: (f.anchorCand?.length || 0) - used };
+  }
+
+  /** Nach der Bildprüfung im Worker: gewählte Punktgruppe übernehmen. */
+  chooseAnchorHyp(f, idx, H, ncc) {
+    const hyp = f.anchorHyps?.[idx];
+    if (!hyp) return;
+    const info = this._useHyp(f, f.anchorCand, hyp);
+    // Handpunkte nach der flächigen Feinkorrektur großzügig prüfen (Finger sind ungenau)
+    for (const k of f.anchorCand || []) {
+      const p = f.anchorPts[k], a = this.anchors[k];
+      if (!p.manual) continue;
+      const [x, y] = apply(H, p.x, p.y);
+      p.outlier = Math.hypot(x - a.x, y - a.y) > 0.025;
+    }
+    f.align = { ok: true, H, method: 'anker', ...info, inliers: info.used, rms: 0, ncc, via: null, refined: true };
+    this._maybeInclude(f);
+  }
+
+
+
 }
 
 /** Robuste zeitliche Glättung: Median, danach gleitender Mittelwert. */

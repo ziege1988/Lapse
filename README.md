@@ -26,12 +26,25 @@ Während eines längeren Exports App geöffnet und Bildschirm an lassen (Lapse v
 | Einstellung | Wirkung |
 |---|---|
 | Aufnahmeart **Stativ** | nur Verschiebung – am stabilsten bei fester Kamera |
-| **Standard** | Verschiebung, Drehung, leichter Zoom – für die meisten Aufnahmen |
-| **Freihand** | zusätzlich Perspektive – bei wechselndem Standpunkt |
+| **Leicht bewegt** | Verschiebung, Drehung, Zoom, leichte Verzerrung |
+| **Freihand** (Standard) | zusätzlich Perspektive – richtig für Aufnahmen aus der Hand |
 | Genauigkeit **Präzise** | höhere Analyseauflösung und mehr Merkmale (ca. doppelte Zeit) |
 | Referenzbild | erstes / mittleres / letztes Foto oder per Hand gesetzt |
 
-Technik: Harris-Ecken auf einer Bildpyramide mit Subpixel-Verfeinerung, rotationsinvariante binäre Deskriptoren (helligkeitsunabhängig, robust bei Tag-Nacht-Übergängen), gegenseitiges Matching mit Ratio-Test, RANSAC/MSAC mit anschließender Ausgleichsrechnung. Gelingt die direkte Ausrichtung nicht, wird über das Nachbarfoto verkettet. In Tests liegt die Restabweichung bei unter 0,05 px (1080p).
+Zwei Verfahren arbeiten zusammen, Lapse nimmt je Foto das bessere:
+1. **Merkmale** – markante Ecken werden gefunden und zugeordnet (schnell, gut bei viel Struktur).
+2. **Flächenvergleich** – ganze Bildflächen werden verglichen (Tellerrand, Umrisse, Verläufe). Robust bei wenig Struktur, Handaufnahmen und sich verändernden Bildteilen; startet auch von der Lage des Nachbarfotos und einer groben Suche über Verschiebung, Drehung und Zoom.
+
+Beide Ergebnisse werden mit derselben Kennzahl bewertet (Übereinstimmung mit der Referenz in %).
+
+### Ankerpunkte / Fixpunkte (wenn die Automatik nicht reicht)
+„Ankerpunkte“ über dem Filmstreifen (oder beim einzelnen Foto „Mit Ankerpunkten ausrichten“):
+1. Im **Referenzbild** 2–4 markante Stellen antippen, die sich in allen Fotos nicht verändern – z. B. eine Ecke, ein Muster oder ein Fleck der Unterlage, möglichst weit auseinander. Lapse bewertet jede Stelle sofort („eindeutig ✓“ oder „nicht eindeutig – besser eine Ecke wählen“).
+2. **Automatisch:** „In allen Fotos suchen“ – Lapse findet die Punkte in jedem Foto, prüft, welche zueinander passen, und verfeinert per Flächenvergleich. Unsichere Funde werden markiert („Nächstes unsicheres Foto“).
+3. **Von Hand:** In jedem Foto einfach nacheinander auf die Stellen von Punkt 1, 2, 3 … tippen (kleines Referenzbild zeigt, wo sie hingehören). Lapse springt automatisch zum nächsten Punkt. Ziehen mit Lupe für Feinarbeit. Funktioniert auch ganz ohne automatische Suche.
+4. „Fertig“ – Zuschnitt, Helligkeit und Farbe werden für alle Fotos neu berechnet.
+
+Sicherheitsnetz: Punkte auf sich verändernden Dingen (z. B. schmelzende Butter) werden erkannt („passt nicht zu den anderen Punkten“); ist die automatische Ausrichtung nachweislich besser, bleibt sie – außer du hast Punkte von Hand gesetzt.
 
 ### Automatische Qualitätskontrolle
 - Fotos, die sich nicht sicher ausrichten lassen (anderes Motiv, Nebel, starke Unschärfe), werden **automatisch ausgeschlossen** und grau markiert – mit einem Tipp wieder aufnehmbar.
