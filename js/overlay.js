@@ -52,16 +52,33 @@ export function insetSpec(project, W, H, crop = project.crop) {
   w = Math.round(w); h = Math.round(h);
   const pos = st.insetPos || 'tr';
   const x = pos.endsWith('l') ? m : W - m - w, y = pos.startsWith('t') ? m : H - m - h;
-  // Vergrößerung gegenüber der Darstellung im Hauptbild
-  const zoom = w / (roi.w / crop.w * W);
-  return { roi, rect: { x, y, w, h }, zoom };
+  // Vergrößerung gegenüber der Darstellung im Hauptbild: automatisch aus der Region
+  // oder fest eingestellt (insetZoom) – dann wird die gezeigte Region um ihre Mitte angepasst
+  let shown = roi, zoom = w / (roi.w / crop.w * W);
+  if (st.insetZoom > 0) {
+    zoom = st.insetZoom;
+    let rw = w / zoom / W * crop.w, rh = rw / a;
+    if (rw > crop.w) { rw = crop.w; rh = rw / a; }
+    if (rh > crop.h) { rh = crop.h; rw = rh * a; }
+    const cx = roi.x + roi.w / 2, cy = roi.y + roi.h / 2;
+    shown = { x: Math.min(Math.max(cx - rw / 2, crop.x), crop.x + crop.w - rw), y: Math.min(Math.max(cy - rh / 2, crop.y), crop.y + crop.h - rh), w: rw, h: rh };
+    zoom = w / (rw / crop.w * W);
+  }
+  return { roi: shown, rect: { x, y, w, h }, zoom };
+}
+
+/** Tatsächlich gezeigte Region und Vergrößerung (für die Bedienung, Bezug Full-HD). */
+export function effectiveRoi(project, crop = project.crop) {
+  if (!crop) return null;
+  const W = 1920, H = Math.round(W * crop.h / crop.w);
+  return insetSpec(project, W, H, crop);
 }
 
 /** Rahmen in Ausgabepixeln für eine kanonische Region. */
 const toPx = (r, crop, W, H) => ({ x: (r.x - crop.x) / crop.w * W, y: (r.y - crop.y) / crop.h * H, w: r.w / crop.w * W, h: r.h / crop.h * H });
 
 /**
- * Ein Videobild vollständig zeichnen: Hauptbild, Zoom-Fenster, Einblendungen.
+ * Ein Videobild vollständig zeichnen: Hauptbild, Region of Interest (vergrößert), Einblendungen.
  * Vorschau und Export nutzen dieselbe Funktion – deshalb sehen beide gleich aus.
  */
 export function drawComposite(r, project, layers, { global, W, H, overlay = true } = {}) {
@@ -99,7 +116,7 @@ export function makeOverlay(project, W, H, crop = project.crop) {
   return c;
 }
 
-/** Dezenter weißer Kasten um die Region im Hauptbild und um das Zoom-Fenster, dazu der Zoomfaktor. */
+/** Dezenter weißer Kasten um die Region im Hauptbild und um die vergrößerte Darstellung, dazu der Faktor. */
 function drawInsetFrames(ctx, ins, crop, W, H, u) {
   const R = toPx(ins.roi, crop, W, H), I = ins.rect;
   ctx.save();

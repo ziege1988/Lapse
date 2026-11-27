@@ -9,7 +9,7 @@ import { BUILD, BUILD_DATE, isDev } from './version.js';
 import { ProjectStore } from './store.js';
 import { Capture } from './capture.js';
 import { Hero } from './hero.js';
-import { mmPerUnit, fmtLength, makeOverlay, overlaySig } from './overlay.js';
+import { mmPerUnit, fmtLength, makeOverlay, overlaySig, effectiveRoi } from './overlay.js';
 import { log, onLog, installHooks, buildReport, counts, stamp } from './diag.js';
 
 installHooks();
@@ -735,13 +735,13 @@ function openEditor(mode) {
   $('#ed-done').disabled = false;
   $('#ed').hidden = false;
   document.body.classList.add('ed-open');
-  $('#ed-title').textContent = mode === 'scale' ? 'Maßstab kalibrieren' : mode === 'roi' ? 'Zoom-Region' : 'Bildausschnitt';
+  $('#ed-title').textContent = mode === 'scale' ? 'Maßstab kalibrieren' : mode === 'roi' ? 'Region of Interest' : 'Bildausschnitt';
   $('#ed-crop').hidden = mode !== 'crop';
   $('#ed-scale').hidden = mode !== 'scale';
   $('#ed-roi').hidden = mode !== 'roi';
   if (mode === 'roi') {
-    const c = cropUI.rect, r = project.settings.roi;
-    ed.roi = r ? { ...r } : { x: c.x + c.w * 0.35, y: c.y + c.h * 0.35, w: c.w * 0.3, h: c.h * 0.3 };
+    const c = cropUI.rect, r = project.settings.roi, eff = r && project.settings.roiOn ? effectiveRoi(project, c) : null;
+    ed.roi = eff ? { ...eff.roi } : r ? { ...r } : { x: c.x + c.w * 0.35, y: c.y + c.h * 0.35, w: c.w * 0.3, h: c.h * 0.3 };
     setRoiRect(ed.roi);
   }
   $('#ed-hint').textContent = mode === 'scale'
@@ -760,8 +760,8 @@ function closeEditor(apply) {
     scl.edit = false; scl.drag = null;
   } else if (ed.mode === 'roi') {
     if (apply) {
-      project.settings.roi = { ...ed.roi }; project.settings.roiOn = true;
-      log(`Zoom-Region gesetzt: ${['x', 'y', 'w', 'h'].map(k => ed.roi[k].toFixed(3)).join(' ')}`, 'ok');
+      project.settings.roi = { ...ed.roi }; project.settings.roiOn = true; project.settings.insetZoom = 0; // Vergrößerung passt sich der neuen Region an
+      log(`Region of Interest gesetzt: ${['x', 'y', 'w', 'h'].map(k => ed.roi[k].toFixed(3)).join(' ')}`, 'ok');
       scheduleSave(); player?.render();
     }
   } else if (!apply && ed.saved) {
@@ -812,7 +812,7 @@ $('#crop-edit').onclick = () => openEditor('crop');
 $('#ed-aspect').addEventListener('click', e => { const b = e.target.closest('button'); if (b) $(`#crop-aspect button[data-v="${b.dataset.v}"]`)?.click(); });
 $('#ed-auto').onclick = () => $('#crop-auto').click();
 
-// ---- Zoom-Ausschnitt (Region of Interest)
+// ---- Region of Interest (vergrößerte Darstellung in einer Ecke)
 const edRect = () => (ed.open && ed.mode === 'roi' ? ed.roi : cropUI.rect);
 
 /** Region übernehmen, aber innerhalb des Bildausschnitts halten. */
@@ -846,8 +846,8 @@ function roiSvg(rw, rh) {
 
 /** Auf der Seite: gewählte Region dezent zeigen (wenn eingeschaltet). */
 function pageRoiSvg(rw) {
-  const st = project.settings, r = st.roi;
-  if (!st.roiOn || !r || (ed.open && ed.mode === 'roi')) return '';
+  const st = project.settings, eff = st.roiOn && st.roi ? effectiveRoi(project, cropUI.rect) : null, r = eff?.roi;
+  if (!r || (ed.open && ed.mode === 'roi')) return '';
   return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="${0.004 * rw}"/>`;
 }
 
@@ -858,12 +858,21 @@ function updateRoiUI() {
   $('.roi-opts').classList.toggle('dim', !(st.roiOn && has));
   $$('#inset-pos button').forEach(b => b.classList.toggle('on', b.dataset.v === (st.insetPos || 'tr')));
   $$('#inset-size button').forEach(b => b.classList.toggle('on', Math.abs(+b.dataset.v - (st.insetSize || 0.38)) < 1e-6));
-  const C = project.crop, k = mmPerUnit(project);
-  $('#roi-state').classList.toggle('off', !(st.roiOn && has));
-  $('#roi-state').textContent = st.roiOn && has
-    ? (k ? `${fmtLength(st.roi.w * k)} × ${fmtLength(st.roi.h * k)}` : 'an') + (C ? ` · ${String(+((st.insetSize || 0.38) / (st.roi.w / C.w)).toFixed(1)).replace('.', ',')}×` : '')
-    : 'aus';
+  const k = mmPerUnit(project), eff = st.roiOn && has ? effectiveRoi(project, cropUI.on ? cropUI.rect : project.crop) : null;
+  const zf = z => String(+z.toFixed(1)).replace('.', ',') + '×';
+  $('#roi-state').classList.toggle('off', !eff);
+  $('#roi-state').textContent = eff ? (k ? `${fmtLength(eff.roi.w * k)} × ${fmtLength(eff.roi.h * k)} · ` : '') + zf(eff.zoom) : 'aus';
+  $('.roi-zoom').classList.toggle('dim', !eff);
+  const Z = zoomList(), r = $('#roi-zoom'), cur = eff ? eff.zoom : 2;
+  r.max = Z.length - 1;
+  r.value = Z.reduce((bi, v, i) => (Math.abs(Math.log(v / cur)) < Math.abs(Math.log(Z[bi] / cur)) ? i : bi), 0);
+  $('#roi-zoom-out').textContent = eff ? zf(eff.zoom) + (st.insetZoom > 0 ? '' : ' (auto)') : '–';
+  $$('#roi-zoom-chips button').forEach(b => b.classList.toggle('on', +b.dataset.z === (st.insetZoom > 0 ? st.insetZoom : 0)));
 }
+function zoomList() { return [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8]; }
+function setRoiZoom(z) { project.settings.insetZoom = z; roiChanged(); }
+$('#roi-zoom').addEventListener('input', e => setRoiZoom(zoomList()[+e.target.value]));
+$('#roi-zoom-chips').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setRoiZoom(+b.dataset.z); });
 function roiChanged() { updateRoiUI(); renderCrop(); player?.render(); scheduleSave(); }
 $('#roi-on').onchange = e => {
   if (e.target.checked && !project.settings.roi) { e.target.checked = false; openEditor('roi'); return; }
@@ -873,7 +882,7 @@ $('#roi-edit').onclick = () => { stopCropPlay(); openEditor('roi'); };
 $('#inset-pos').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; project.settings.insetPos = b.dataset.v; roiChanged(); });
 $('#inset-size').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; project.settings.insetSize = +b.dataset.v; roiChanged(); });
 
-// ---- Video im Zuschnitt-Schritt abspielen (mit Zuschnitt, Zoom-Fenster und Einblendungen)
+// ---- Video im Zuschnitt-Schritt abspielen (mit Zuschnitt, Region of Interest und Einblendungen)
 let cropPlaying = false;
 function startCropPlay() {
   if (!cropUI.on || cropPlaying) return;

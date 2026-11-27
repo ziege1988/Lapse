@@ -211,7 +211,7 @@ body.ed-open { overflow: hidden; }
 body.crop-mode .stage-wrap { position: static; }
 body.ed-open .toast { bottom: auto; top: calc(64px + var(--safe-t)); z-index: 260; }
 
-/* Zoom-Ausschnitt */
+/* Region of Interest */
 .crop-actions { margin: 4px 0 10px; }
 .crop-actions .btn { min-height: 46px; }
 #crop-play.on { border-color: var(--accent); color: var(--accent); }
@@ -221,3 +221,7 @@ body.ed-open .toast { bottom: auto; top: calc(64px + var(--safe-t)); z-index: 26
 #inset-size button { font: 600 13px var(--mono); }
 .scale-box .seg.dim, .roi-box .dim { opacity: .4; pointer-events: none; }
 #roi-box .roi-opts.dim { opacity: .4; pointer-events: none; }
+
+.roi-zoom { margin: 2px 0 0; }
+.roi-zoom.dim { opacity: .4; pointer-events: none; }
+.roi-zoom .chips { margin-top: 4px; }

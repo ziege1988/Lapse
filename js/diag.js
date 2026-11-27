@@ -61,7 +61,7 @@ function projectInfo(project) {
   out.push(`Fotos ${p.frames.length} · im Video ${inc.length} · ausgerichtet ${yes(p.aligned)} · Bezug ${p.ref?.name || '–'} · Ankerpunkte ${p.anchors.length}${p.anchorsActive ? ' (aktiv)' : ''}`);
   if (p.anchors.length) out.push(`Punkte    ${p.anchors.map(a => `(${num(a.x, 3)},${num(a.y, 3)})`).join(' ')}`);
   if (p.scale) out.push(`Maßstab   ${p.scale.mm} mm über (${num(p.scale.p1.x, 3)},${num(p.scale.p1.y, 3)})–(${num(p.scale.p2.x, 3)},${num(p.scale.p2.y, 3)}) · Balken ${p.settings.scaleBar} · Lineal ${p.settings.ruler ? 'an' : 'aus'}`);
-  if (p.settings.roi) out.push(`Zoom      ${p.settings.roiOn ? 'an' : 'aus'} · Region ${['x', 'y', 'w', 'h'].map(k => num(p.settings.roi[k], 3)).join(' ')} · Ecke ${p.settings.insetPos} · Größe ${p.settings.insetSize}`);
+  if (p.settings.roi) out.push(`Zoom      ${p.settings.roiOn ? 'an' : 'aus'} · Region ${['x', 'y', 'w', 'h'].map(k => num(p.settings.roi[k], 3)).join(' ')} · Ecke ${p.settings.insetPos} · Größe ${p.settings.insetSize} · Vergrößerung ${p.settings.insetZoom > 0 ? p.settings.insetZoom + '×' : 'auto'}`);
   if (p.crop) out.push(`Zuschnitt ${['x', 'y', 'w', 'h'].map(k => num(p.crop[k], 3)).join(' ')}${p.customCrop ? ' · eigener' : ' · automatisch'}`);
   try { out.push(`Einst.    ${JSON.stringify(p.settings)}`); } catch { /* egal */ }
   out.push('');

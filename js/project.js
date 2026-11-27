@@ -27,10 +27,11 @@ export const DEFAULT_SETTINGS = {
   scaleBar: 'off',          // Maßstab im Video: off | bl (unten links) | br (unten rechts)
   scalePos: 'bl',           // gemerkte Position des Balkens
   ruler: false,             // Lineal (Zollstock) quer durch die Bildmitte
-  roiOn: false,             // Zoom-Ausschnitt (Region of Interest) im Video zeigen
+  roiOn: false,             // Region of Interest vergrößert im Video zeigen
   roi: null,                // Region {x, y, w, h} im Bezugsfoto (kanonisch)
-  insetPos: 'tr',           // Ecke des Zoom-Fensters: tl | tr | bl | br
-  insetSize: 0.38,          // Breite des Zoom-Fensters (Anteil der Videobreite)
+  insetPos: 'tr',           // Ecke der vergrößerten Darstellung: tl | tr | bl | br
+  insetSize: 0.38,          // Breite der vergrößerten Darstellung (Anteil der Videobreite)
+  insetZoom: 0,             // Vergrößerung fest (z. B. 3) oder 0 = automatisch aus der Region
 };
 
 export const ASPECTS = { '16:9': 16 / 9, '9:16': 9 / 16, '4:3': 4 / 3, '3:4': 3 / 4, '3:2': 3 / 2, '1:1': 1 };

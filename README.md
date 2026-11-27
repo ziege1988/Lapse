@@ -43,9 +43,9 @@ Wichtig auf dem iPhone (Grenzen von Safari, nicht von Lapse):
 
 Im Schritt **Zuschnitt** unter „Maßstab“: „Maßstab kalibrieren“ öffnet den Vollbild-Editor; dort zwei Punkte mit bekanntem Abstand antippen (am besten gegenüberliegende Außenkanten der Schale; zum Feinjustieren ziehen, eine Lupe zeigt die Stelle unter dem Finger) und den echten Abstand wählen (35/60/90/100/150 mm) oder eingeben. Lapse zeigt die Auflösung (µm pro Pixel). Per Schalter einzeln ein-/ausblendbar (im Zuschnitt und beim Export): ein runder Maßstabsbalken (z. B. „20 mm“) unten links oder rechts und ein Lineal quer durch die Bildmitte (Grundlinie mit Strichen nach oben: lang = cm, mittel = 0,5 cm, kurz = mm; ohne Zahlen) – identisch in Vorschau, MP4/WebM, GIF und Einzelbildern. Da alle Fotos in die Lage des Bezugsfotos gebracht werden, gilt die Kalibrierung für die ganze Serie. Genauigkeit: abhängig davon, wie exakt die Punkte sitzen; bei 90 mm über ~1500 px entspricht ein Tippfehler von 5 px etwa 0,3 mm (0,3 %).
 
-### Zoom-Ausschnitt (Region of Interest)
+### Region of Interest
 
-Im Schritt **Zuschnitt** unter „Zoom-Ausschnitt“: „Region wählen“ öffnet den Vollbild-Editor; dort eine Region aufziehen (verschieben, Ecken/Kanten ziehen). Im Video wird die Region dezent weiß umrahmt und zusätzlich vergrößert in einer wählbaren Ecke gezeigt (Größe S/M/L, mit Angabe des Zoomfaktors) – live mit dem Zeitraffer, identisch in Vorschau und Export. Ein-/ausschaltbar; „▶ Video abspielen“ im Zuschnitt zeigt das Ergebnis sofort.
+Im Schritt **Zuschnitt** unter „Region of Interest“: „Region wählen“ öffnet den Vollbild-Editor; dort eine Region aufziehen (verschieben, Ecken/Kanten ziehen). Im Video wird die Region dezent weiß umrahmt und zusätzlich vergrößert in einer wählbaren Ecke gezeigt (Größe S/M/L). Die Vergrößerung ist einstellbar (Auto oder 1–8×; mehr Vergrößerung zeigt einen kleineren Bereich um dieselbe Mitte, der Rahmen passt sich an) und wird im Video angezeigt – live mit dem Zeitraffer, identisch in Vorschau und Export. Ein-/ausschaltbar; „▶ Video abspielen“ im Zuschnitt zeigt das Ergebnis sofort.
 
 ### Diagnose
 
