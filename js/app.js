@@ -9,7 +9,7 @@ import { BUILD, BUILD_DATE, isDev } from './version.js';
 import { ProjectStore } from './store.js';
 import { Capture } from './capture.js';
 import { Hero } from './hero.js';
-import { mmPerUnit, niceLength, fmtLength } from './overlay.js';
+import { mmPerUnit, fmtLength, makeOverlay, overlaySig } from './overlay.js';
 import { log, onLog, installHooks, buildReport, counts, stamp } from './diag.js';
 
 installHooks();
@@ -209,7 +209,7 @@ function showView(v) {
   if (v !== 'edit') player?.pause();
   if (v === 'edit') { layoutStage(); renderStrip(); updateFramePanel(); player.invalidate(); }
   if (v === 'crop') openCrop();
-  if (v === 'export') { refreshExport(); updateCropState(); }
+  if (v === 'export') { refreshExport(); updateCropState(); syncExportScale(); }
   if (v === 'points') renderPoints();
   updatePrimary();
   window.scrollTo({ top: 0 });
@@ -720,7 +720,7 @@ const scl = { edit: false, pts: [], mm: 90, drag: null };
 function scaleSvg(rw) {
   let out = '';
   const lw = 0.004 * rw, rr = 0.014 * rw, fs = 0.032 * rw;
-  const pts = scl.edit ? scl.pts : project.scale && mmPerUnit(project) ? [project.scale.p1, project.scale.p2] : [];
+  const pts = scl.edit ? scl.pts : []; // Messstrecke nur beim Kalibrieren zeigen
   if (pts.length) {
     const col = scl.edit ? '#7fd3e6' : 'rgba(127,211,230,.55)';
     if (pts.length === 2) {
@@ -731,14 +731,17 @@ function scaleSvg(rw) {
     }
     for (const p of pts) out += `<circle cx="${p.x}" cy="${p.y}" r="${rr}" fill="rgba(127,211,230,.18)" stroke="${col}" stroke-width="${lw}"/><circle cx="${p.x}" cy="${p.y}" r="${lw}" fill="${col}"/>`;
   }
-  // Balken-Vorschau im Rahmen (wie im Video)
-  const k = scl.edit && scl.pts.length === 2 && scl.mm > 0 ? scl.mm / Math.hypot(scl.pts[1].x - scl.pts[0].x, scl.pts[1].y - scl.pts[0].y) : mmPerUnit(project);
-  const pos = project.settings.scaleBar, r = cropUI.rect;
-  if (k && r && pos && pos !== 'off') {
-    const L = niceLength(r.w * 0.2 * k), len = L / k, u = Math.min(r.w, r.h) / 100;
-    const x0 = pos === 'br' ? r.x + r.w - 4.5 * u - len : r.x + 4.5 * u, y = r.y + r.h - 4.5 * u;
-    out += `<g fill="#fff"><rect x="${x0}" y="${y - 0.8 * u}" width="${len}" height="${0.8 * u}"/><rect x="${x0}" y="${y - 2.6 * u}" width="${0.6 * u}" height="${2.6 * u}"/><rect x="${x0 + len - 0.6 * u}" y="${y - 2.6 * u}" width="${0.6 * u}" height="${2.6 * u}"/>
-      <text x="${pos === 'br' ? x0 + len : x0}" y="${y - 3.4 * u}" font-size="${3.3 * u}" font-family="ui-monospace,Menlo,monospace" text-anchor="${pos === 'br' ? 'end' : 'start'}">${fmtLength(L)}</text></g>`;
+  // Vorschau der Einblendungen im Rahmen – exakt wie im Video
+  const r = cropUI.rect;
+  if (r) {
+    const tmp = scl.edit && scl.pts.length === 2 && scl.mm > 0
+      ? { settings: project.settings, refId: project.refId, scale: { p1: scl.pts[0], p2: scl.pts[1], mm: scl.mm, refId: project.refId } }
+      : project;
+    const W = 720, H = Math.max(2, Math.round(W * r.h / r.w)), sig = overlaySig(tmp, W, H, r);
+    if (sig !== 'none') {
+      if (scaleSvg.sig !== sig) { scaleSvg.sig = sig; scaleSvg.url = makeOverlay(tmp, W, H, r)?.toDataURL('image/png') || ''; }
+      if (scaleSvg.url) out += `<image href="${scaleSvg.url}" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" preserveAspectRatio="none"/>`;
+    }
   }
   return out;
 }
@@ -748,7 +751,11 @@ function updateScaleUI() {
   const st = $('#scale-state');
   st.classList.toggle('off', !k);
   st.textContent = k ? `kalibriert · ${fmtLength(project.scale.mm)} · ${(k / m * 1000).toFixed(1).replace('.', ',')} µm/px` : 'nicht kalibriert';
-  $$('#scale-pos button').forEach(b => b.classList.toggle('on', b.dataset.v === (project.settings.scaleBar || 'off')));
+  const so = project.settings, barOn = !!so.scaleBar && so.scaleBar !== 'off';
+  $$('#scale-pos button').forEach(b => b.classList.toggle('on', b.dataset.v === (barOn ? so.scaleBar : so.scalePos || 'bl')));
+  $('#scale-pos').classList.toggle('dim', !barOn);
+  $('#sb-on').checked = barOn; $('#ruler-on').checked = !!so.ruler;
+  syncExportScale();
   $('#scale-edit').hidden = !scl.edit;
   $('#scale-cal').hidden = scl.edit;
   $('#scale-cal').textContent = k ? '📏 Neu kalibrieren' : '📏 Maßstab kalibrieren';
@@ -782,22 +789,50 @@ $('#scale-mm').oninput = e => { scl.mm = parseFloat(String(e.target.value).repla
 $('#scale-done').onclick = () => {
   if (scl.pts.length < 2 || !(scl.mm > 0)) return;
   project.scale = { p1: scl.pts[0], p2: scl.pts[1], mm: scl.mm, refId: project.refId };
-  if (!project.settings.scaleBar || project.settings.scaleBar === 'off') project.settings.scaleBar = 'bl';
+  if ((!project.settings.scaleBar || project.settings.scaleBar === 'off') && !project.settings.ruler) project.settings.scaleBar = project.settings.scalePos || 'bl';
   log(`Maßstab kalibriert: ${fmtLength(scl.mm)} · ${(mmPerUnit(project) / Math.max(project.ref.w, project.ref.h) * 1000).toFixed(2)} µm/px`, 'ok');
   setScaleEdit(false);
   scheduleSave();
   toast('Maßstab übernommen – erscheint in Vorschau und Export.');
 };
 $('#scale-clear').onclick = () => {
-  project.scale = null; project.settings.scaleBar = 'off';
+  project.scale = null; project.settings.scaleBar = 'off'; project.settings.ruler = false;
   setScaleEdit(false); scheduleSave();
 };
 $('#scale-pos').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
+  project.settings.scalePos = b.dataset.v;
   project.settings.scaleBar = b.dataset.v;
-  if (b.dataset.v !== 'off' && !mmPerUnit(project)) setScaleEdit(true);
-  renderCrop(); updateScaleUI(); scheduleSave();
+  scaleChanged();
 });
+
+/** Balken und Lineal ein-/ausschalten (Zuschnitt und Export teilen sich die Einstellung). */
+function setOverlayOpt(kind, on) {
+  const st = project.settings;
+  if (kind === 'bar') st.scaleBar = on ? (st.scalePos || 'bl') : 'off';
+  else st.ruler = on;
+  if (on && !mmPerUnit(project)) {
+    if (cropUI.on) setScaleEdit(true);
+    else { toast('Erst kalibrieren: Schritt 04 Zuschnitt › Maßstab.', 3500); }
+  }
+  scaleChanged();
+}
+function scaleChanged() {
+  if (cropUI.on) { renderCrop(); updateScaleUI(); } else syncExportScale();
+  player?.render();
+  scheduleSave();
+}
+function syncExportScale() {
+  const st = project.settings, k = !!mmPerUnit(project);
+  $('#sb-on2').checked = k && !!st.scaleBar && st.scaleBar !== 'off';
+  $('#ruler-on2').checked = k && !!st.ruler;
+  $('#sb-on2').disabled = $('#ruler-on2').disabled = !k;
+  $('#exp-scale-help').textContent = k ? `Kalibriert: ${fmtLength(project.scale.mm)}. Erscheint im Video.` : 'Noch nicht kalibriert – in Schritt 04 Zuschnitt unter „Maßstab“.';
+}
+$('#sb-on').onchange = e => setOverlayOpt('bar', e.target.checked);
+$('#ruler-on').onchange = e => setOverlayOpt('ruler', e.target.checked);
+$('#sb-on2').onchange = e => setOverlayOpt('bar', e.target.checked);
+$('#ruler-on2').onchange = e => setOverlayOpt('ruler', e.target.checked);
 
 /** Schnittmenge konvexer Polygone (Sutherland-Hodgman). */
 function intersectAll(quads, start) {

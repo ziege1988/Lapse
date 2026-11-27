@@ -41,7 +41,7 @@ Wichtig auf dem iPhone (Grenzen von Safari, nicht von Lapse):
 
 ### Maßstab
 
-Im Schritt **Zuschnitt** unter „Maßstab“: „Maßstab kalibrieren“, im Bezugsfoto zwei Punkte mit bekanntem Abstand antippen (am besten gegenüberliegende Außenkanten der Schale; Punkte lassen sich verschieben) und den echten Abstand wählen (35/60/90/100/150 mm) oder eingeben. Lapse zeigt die Auflösung (µm pro Pixel) und blendet einen runden Maßstabsbalken (z. B. „20 mm“) unten links oder rechts ein – identisch in Vorschau, MP4/WebM, GIF und Einzelbildern. Da alle Fotos in die Lage des Bezugsfotos gebracht werden, gilt die Kalibrierung für die ganze Serie. Genauigkeit: abhängig davon, wie exakt die Punkte sitzen; bei 90 mm über ~1500 px entspricht ein Tippfehler von 5 px etwa 0,3 mm (0,3 %).
+Im Schritt **Zuschnitt** unter „Maßstab“: „Maßstab kalibrieren“, im Bezugsfoto zwei Punkte mit bekanntem Abstand antippen (am besten gegenüberliegende Außenkanten der Schale; Punkte lassen sich verschieben) und den echten Abstand wählen (35/60/90/100/150 mm) oder eingeben. Lapse zeigt die Auflösung (µm pro Pixel). Per Schalter einzeln ein-/ausblendbar (im Zuschnitt und beim Export): ein runder Maßstabsbalken (z. B. „20 mm“) unten links oder rechts und ein leicht transparentes Lineal (Zollstock) quer durch die Bildmitte mit mm-Teilung – identisch in Vorschau, MP4/WebM, GIF und Einzelbildern. Da alle Fotos in die Lage des Bezugsfotos gebracht werden, gilt die Kalibrierung für die ganze Serie. Genauigkeit: abhängig davon, wie exakt die Punkte sitzen; bei 90 mm über ~1500 px entspricht ein Tippfehler von 5 px etwa 0,3 mm (0,3 %).
 
 ### Diagnose
 

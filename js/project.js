@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS = {
   holdStart: 0,
   holdEnd: 0.5,
   scaleBar: 'off',          // Maßstab im Video: off | bl (unten links) | br (unten rechts)
+  scalePos: 'bl',           // gemerkte Position des Balkens
+  ruler: false,             // Lineal (Zollstock) quer durch die Bildmitte
 };
 
 export const ASPECTS = { '16:9': 16 / 9, '9:16': 9 / 16, '4:3': 4 / 3, '3:4': 3 / 4, '3:2': 3 / 2, '1:1': 1 };

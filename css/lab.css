@@ -169,3 +169,9 @@ body.anchor-mode .series { display: none; }
 #scale-edit { display: grid; gap: 10px; }
 #scale-edit .help { margin: 0; }
 body.scale-mode .crop-layer { cursor: crosshair; }
+.scale-box .switch { margin: 0; min-height: 38px; font-size: 14.5px; }
+.scale-box .seg.dim { opacity: .4; pointer-events: none; }
+.exp-scale { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.exp-scale .switch { min-height: 38px; margin: 2px 0; }
+.switch input:disabled { opacity: .35; }
+.switch:has(input:disabled) span { color: var(--muted); }
