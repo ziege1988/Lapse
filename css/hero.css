@@ -7,7 +7,7 @@ body.booting #empty { opacity: 0; }
 .hero-stage {
   position: relative; height: min(62vh, 420px, 108vw);
   background:
-    radial-gradient(circle at 50% 48%, rgba(255, 181, 71, .07), transparent 58%),
+    radial-gradient(circle at 50% 48%, rgba(243,192,138, .07), transparent 58%),
     radial-gradient(circle at 50% 50%, rgba(127, 211, 230, .04), transparent 70%);
   border-bottom: 1px solid var(--line);
   overflow: hidden;

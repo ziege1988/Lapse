@@ -1,13 +1,13 @@
 :root {
-  --bg: #0e0f12;
+  --bg: #141517;
   --bg2: #16181d;
   --card: #1b1e24;
   --line: #2a2e37;
   --text: #eef0f4;
   --muted: #9aa1ad;
-  --accent: #ffb547;
-  --accent-ink: #1d1406;
-  --warn: #ffb547;
+  --accent: #f3c08a;
+  --accent-ink: #2b1e10;
+  --warn: #f3c08a;
   --bad: #ff6b5e;
   --good: #5ad39a;
   --radius: 14px;
@@ -89,7 +89,7 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px; }
 .empty-art { position: relative; width: 150px; height: 112px; margin: 0 auto; }
 .empty-art span {
   position: absolute; inset: 0; border-radius: 14px; border: 1px solid var(--line);
-  background: linear-gradient(160deg, #2b3a55, #c8743d 70%, #ffb547);
+  background: linear-gradient(160deg, #2b3a55, #c8743d 70%, #f3c08a);
 }
 .empty-art span:nth-child(1) { transform: translate(-22px, 10px) rotate(-8deg); filter: brightness(.55); }
 .empty-art span:nth-child(2) { transform: translate(18px, 6px) rotate(6deg); filter: brightness(.75); }

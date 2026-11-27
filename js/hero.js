@@ -124,7 +124,7 @@ export class Hero {
       const v = Math.min(1, Math.sqrt(T[i] / 9));
       if (v > 0.35) cover++;
       const e = v * v * (3 - 2 * v);
-      d[j] = 22 + e * 233; d[j + 1] = 24 + e * 170 + e * e * 50; d[j + 2] = 28 + e * 30 + e * e * e * 140; d[j + 3] = 255;
+      d[j] = 26 + e * 218; d[j + 1] = 27 + e * 165 + e * e * 45; d[j + 2] = 30 + e * 95 + e * e * e * 95; d[j + 3] = 255;
     }
     this.ictx.putImageData(this.data, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -151,7 +151,7 @@ export class Hero {
       ctx.fillStyle = 'rgba(236,222,196,.92)'; ctx.fill();
       ctx.restore();
       ctx.beginPath(); ctx.arc(px, py, 13 * dpr * S / 300, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255,181,71,.85)'; ctx.lineWidth = 1.3 * dpr; ctx.stroke();
+      ctx.strokeStyle = 'rgba(243,192,138,.85)'; ctx.lineWidth = 1.3 * dpr; ctx.stroke();
     }
     // Messring (dreht langsam) und Fadenkreuz
     const a = (this.t / 160) % (Math.PI * 2);

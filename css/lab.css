@@ -1,9 +1,9 @@
 /* Labor-Optik für die ganze App: tiefes Schwarz, Haarlinien, Monospace für Daten und Beschriftungen.
    Liegt als Schicht über app.css – Aufbau und Abläufe bleiben unverändert. */
 :root {
-  --bg: #07080a;
-  --bg2: #0e1014;
-  --card: #0b0d10;
+  --bg: #141517;
+  --bg2: #1c1e21;
+  --card: #191b1e;
   --line: rgba(255, 255, 255, .13);
   --line2: rgba(255, 255, 255, .07);
   --text: #e9eef2;
@@ -85,11 +85,11 @@ input[type=range]::-webkit-slider-runnable-track { height: 2px; background: rgba
 input[type=range]::-moz-range-track { height: 2px; background: rgba(255, 255, 255, .18); }
 input[type=range]::-webkit-slider-thumb { width: 20px; height: 20px; margin-top: -9px; background: var(--data); border: 2px solid var(--bg); box-shadow: 0 0 0 1px var(--line); }
 .actionbar { background: color-mix(in srgb, var(--bg) 94%, transparent); border-top-color: var(--line); }
-.toast { background: #101317; border: 1px solid var(--line); font-size: 13.5px; border-radius: 10px; }
+.toast { background: #1e2024; border: 1px solid var(--line); font-size: 13.5px; border-radius: 10px; }
 .modal { background: rgba(2, 3, 4, .72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.modal-box { background: #0b0d10; border-color: var(--line); border-radius: 14px; }
+.modal-box { background: #1a1c1f; border-color: var(--line); border-radius: 14px; }
 .version { font-family: var(--mono); letter-spacing: .08em; }
-.update-bar { background: #0b0d10; border-radius: 10px; }
+.update-bar { background: #1a1c1f; border-radius: 10px; }
 
 /* Startseite */
 .lab-art { width: min(280px, 80%); height: auto; display: block; margin: 0 auto; }
@@ -130,7 +130,7 @@ body.anchor-mode .series { display: none; }
 .proc-meta { display: flex; justify-content: space-between; font: 10px/1.4 var(--mono); letter-spacing: .06em; color: #7c8792; }
 .modal-box p.proc-now { min-height: 0; margin: 10px 0 8px; font: 12.5px/1.4 var(--mono); color: var(--data); }
 .proc-log {
-  height: 150px; overflow: hidden; margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #050607;
+  height: 150px; overflow: hidden; margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #0f1012;
   font: 10.5px/1.55 var(--mono); color: #9aa5ae; white-space: pre-wrap; word-break: break-word;
   display: flex; flex-direction: column; justify-content: flex-end;
 }

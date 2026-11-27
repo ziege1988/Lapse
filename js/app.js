@@ -704,9 +704,9 @@ function renderCrop() {
     <path d="M0 0H${rw}V${rh}H0Z ${areaPath}" fill="rgba(0,0,0,.6)" fill-rule="evenodd"/>
     <path d="${areaPath} M${r.x} ${r.y}V${r.y + r.h}H${r.x + r.w}V${r.y}Z" fill="rgba(0,0,0,.35)" fill-rule="evenodd"/>
     <path d="${areaPath}" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="${0.004 * rw}" stroke-dasharray="${0.012 * rw} ${0.008 * rw}"/>
-    <rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="#ffb547" stroke-width="${0.006 * rw}"/>
+    <rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="#f3c08a" stroke-width="${0.006 * rw}"/>
     <path d="M${r.x + r.w / 3} ${r.y}V${r.y + r.h}M${r.x + 2 * r.w / 3} ${r.y}V${r.y + r.h}M${r.x} ${r.y + r.h / 3}H${r.x + r.w}M${r.x} ${r.y + 2 * r.h / 3}H${r.x + r.w}" stroke="rgba(255,255,255,.35)" stroke-width="${0.002 * rw}"/>
-    ${corners.map(([x, y]) => `<rect x="${x - hs / 2}" y="${y - hs / 2}" width="${hs}" height="${hs}" rx="${hs / 4}" fill="#ffb547" stroke="#000" stroke-width="${0.002 * rw}"/>`).join('')}
+    ${corners.map(([x, y]) => `<rect x="${x - hs / 2}" y="${y - hs / 2}" width="${hs}" height="${hs}" rx="${hs / 4}" fill="#f3c08a" stroke="#000" stroke-width="${0.002 * rw}"/>`).join('')}
   </svg>`;
   $$('#crop-aspect button').forEach(b => b.classList.toggle('on', b.dataset.v === cropUI.key));
   updateCropState();
@@ -1218,7 +1218,7 @@ function renderSeries() {
     const a = f.align || {};
     let v = a.ncc != null ? a.ncc : f.geoSupport != null && project.anchors.length ? f.geoSupport / project.anchors.length : a.ok ? 0.8 : 0;
     if (f.id === project.refId) v = 1;
-    const col = f.excluded ? 'rgba(255,255,255,.12)' : f.quality === 'bad' ? '#ff6b5e' : f.quality === 'warn' ? '#ffb547' : '#5ad39a';
+    const col = f.excluded ? 'rgba(255,255,255,.12)' : f.quality === 'bad' ? '#ff6b5e' : f.quality === 'warn' ? '#f3c08a' : '#5ad39a';
     ctx.fillStyle = col; ctx.globalAlpha = f.excluded ? 1 : 0.55;
     const h = Math.max(2 * dpr, Math.max(0, Math.min(1, v)) * hgt * 0.55);
     ctx.fillRect(i * bw + bw * 0.2, bot - h, Math.max(1, bw * 0.6), h);
@@ -1244,7 +1244,7 @@ function renderSeries() {
   }
   // aktuelles Bild
   const cur = fr.indexOf(ui.selected || lastCurrent);
-  if (cur >= 0) { ctx.fillStyle = 'rgba(255,181,71,.9)'; ctx.fillRect((cur + 0.5) * bw - dpr / 2, top - 6 * dpr, Math.max(1, dpr), H); }
+  if (cur >= 0) { ctx.fillStyle = 'rgba(243,192,138,.9)'; ctx.fillRect((cur + 0.5) * bw - dpr / 2, top - 6 * dpr, Math.max(1, dpr), H); }
 }
 $('#series').addEventListener('click', e => {
   const fr = renderSeries.frames || [], r = e.currentTarget.getBoundingClientRect();

@@ -347,13 +347,13 @@ export class Capture {
       ctx.strokeStyle = 'rgba(255,255,255,.35)';
       ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
       const bx = cx + clamp(t.x / 15, -1, 1) * R, by = cy + clamp(t.y / 15, -1, 1) * R;
-      ctx.fillStyle = ok ? 'rgba(90,211,154,.9)' : 'rgba(255,181,71,.9)';
+      ctx.fillStyle = ok ? 'rgba(90,211,154,.9)' : 'rgba(243,192,138,.9)';
       ctx.beginPath(); ctx.arc(bx, by, 5 * k, 0, Math.PI * 2); ctx.fill();
     }
     // Bezugspunkte während der Aufnahme: zeigen, ob die Kamera verrutscht
     if (this.p === 'run' && this.still) {
       const m = Math.max(this.still.w, this.still.h);
-      ctx.strokeStyle = 'rgba(255,181,71,.9)'; ctx.lineWidth = 2 * k;
+      ctx.strokeStyle = 'rgba(243,192,138,.9)'; ctx.lineWidth = 2 * k;
       for (const p of this.points) { ctx.beginPath(); ctx.arc(x0 + p.x * m / this.still.w * w, y0 + p.y * m / this.still.h * h, 15 * k, 0, Math.PI * 2); ctx.stroke(); }
     }
   }
