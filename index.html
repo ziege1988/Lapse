@@ -16,8 +16,9 @@
   <link rel="stylesheet" href="css/app.css">
   <link rel="stylesheet" href="css/lab.css">
   <link rel="stylesheet" href="css/capture.css">
+  <link rel="stylesheet" href="css/hero.css">
 </head>
-<body>
+<body class="booting">
   <header class="top">
     <div class="brand"><img src="icons/icon-192.png" alt="" width="24" height="24"><span>LAPSE</span><button class="diag-btn" id="diag-btn" aria-label="Diagnose öffnen" title="Diagnose"><i class="led"></i>DIAG</button></div>
     <nav class="steps" aria-label="Schritte">
@@ -34,23 +35,36 @@
     <section id="view-photos" class="view">
       <div class="guide" id="guide-photos"><b>Schritt 1 von 5 · Fotos auswählen</b><p>Wähle alle Fotos deiner Serie aus. Danach geht es unten mit dem orangen Knopf weiter.</p></div>
       <div id="empty" class="empty">
-        <svg class="lab-art" viewBox="0 0 240 132" aria-hidden="true">
-          <g fill="none" stroke-width="1">
-            <circle cx="66" cy="62" r="46" stroke="rgba(255,255,255,.22)"/>
-            <circle cx="66" cy="62" r="38" stroke="rgba(127,211,230,.55)" stroke-dasharray="3 3"/>
-            <path d="M66 10v14M66 100v14M14 62h14M104 62h14" stroke="rgba(255,255,255,.35)"/>
-            <path d="M48 50c10-8 22 4 30-2s10 12 4 18-18 6-24 0-14-8-10-16z" stroke="#ffb547" stroke-width="1.4" fill="rgba(255,181,71,.14)"/>
-            <circle cx="50" cy="44" r="3.2" stroke="#ffb547"/><circle cx="84" cy="48" r="3.2" stroke="#ffb547"/><circle cx="58" cy="80" r="3.2" stroke="#ffb547"/><circle cx="86" cy="76" r="3.2" stroke="#ffb547"/>
-            <path d="M136 108h92M136 108V22" stroke="rgba(255,255,255,.25)"/>
-            <path d="M140 96l12-6 12 2 12-14 12-4 12-20 12-8 12-18" stroke="#7fd3e6" stroke-width="1.4"/>
-            <path d="M140 102h88" stroke="rgba(255,255,255,.08)"/>
-          </g>
-          <g fill="#7c8792" font-family="ui-monospace,Menlo,monospace" font-size="7" letter-spacing=".08em">
-            <text x="136" y="120">t₀</text><text x="219" y="120">tₙ</text><text x="140" y="18">Δ FLÄCHE</text>
-            <text x="22" y="126">PROBE · REF 4 PKT</text>
-          </g>
-          <g fill="#7fd3e6"><circle cx="152" cy="90" r="1.6"/><circle cx="176" cy="78" r="1.6"/><circle cx="200" cy="54" r="1.6"/><circle cx="224" cy="28" r="1.6"/></g>
-        </svg>
+        <section class="hero" aria-label="Lapse">
+          <div class="hero-stage">
+            <canvas id="hero-canvas" aria-hidden="true"></canvas>
+            <div class="hero-hud tl"><b>PROBE 01</b><span>PHYSARUM · MODELL</span></div>
+            <div class="hero-hud tr"><span id="hh-t">T+ 00:00 h</span><span id="hh-f">FRAME 0000</span></div>
+            <div class="hero-hud bl"><span id="hh-a">FLÄCHE 0,0 %</span><span id="hh-d">Δ 0,0 %</span></div>
+            <div class="hero-hud br"><span>REF · 5 PKT</span><span><i class="rec-dot"></i>LIVE</span></div>
+          </div>
+          <div class="hero-text">
+            <div class="kicker">ZEITRAFFER-LABOR</div>
+            <h1>Sichtbar machen,<br>was langsam geschieht.</h1>
+            <p>Aufnehmen, präzise ausrichten, Licht angleichen – und als Video exportieren.</p>
+          </div>
+        </section>
+        <div class="choices">
+          <button class="choice" id="choose-capture">
+            <span class="choice-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v2l1.4 1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+            <span class="choice-txt"><b>Zeitraffer aufnehmen</b><small>Kamera prüft Bild &amp; Licht, setzt Bezugspunkte und fotografiert automatisch im Intervall.</small></span>
+          </button>
+          <button class="choice" id="choose-photos">
+            <span class="choice-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="6" width="13" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7.5 6V4.5h13v13H17" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m5 17 3.5-4 2.5 3 1.5-1.5L15 17" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+            <span class="choice-txt"><b>Fotos laden</b><small>Vorhandene Fotos aus der Mediathek auswählen, ausrichten und zum Video machen.</small></span>
+          </button>
+        </div>
+        <div class="facts" aria-hidden="true">
+          <div><b>Subpixel</b><small>Ausrichtung</small></div>
+          <div><b>100 % lokal</b><small>nichts wird hochgeladen</small></div>
+          <div><b>MP4 · GIF</b><small>Export</small></div>
+        </div>
+        <div class="resumes">
         <div class="card resume" id="resume" hidden>
           <b>Letztes Projekt</b>
           <p class="muted small" id="resume-info"></p>
@@ -76,19 +90,7 @@
             <button class="btn ghost" id="cap-resume-discard">Verwerfen</button>
           </div>
         </div>
-        <h1>Zeitraffer erstellen</h1>
-        <p>Wie möchtest du starten?</p>
-        <div class="choices">
-          <button class="choice" id="choose-capture">
-            <span class="choice-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v2l1.4 1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
-            <span class="choice-txt"><b>Zeitraffer aufnehmen</b><small>Kamera prüft Bild &amp; Licht, setzt Bezugspunkte und fotografiert automatisch im Intervall.</small></span>
-          </button>
-          <button class="choice" id="choose-photos">
-            <span class="choice-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="6" width="13" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7.5 6V4.5h13v13H17" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m5 17 3.5-4 2.5 3 1.5-1.5L15 17" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
-            <span class="choice-txt"><b>Fotos laden</b><small>Vorhandene Fotos aus der Mediathek auswählen, ausrichten und zum Video machen.</small></span>
-          </button>
         </div>
-        <p class="hint">Alles passiert auf deinem iPhone – nichts wird hochgeladen.</p>
         <p class="version" id="version"></p>
       </div>
 

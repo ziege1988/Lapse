@@ -8,6 +8,7 @@ import { inv, mul, apply, I3 } from './geometry.js';
 import { BUILD, BUILD_DATE, isDev } from './version.js';
 import { ProjectStore } from './store.js';
 import { Capture } from './capture.js';
+import { Hero } from './hero.js';
 import { log, onLog, installHooks, buildReport, counts, stamp } from './diag.js';
 
 installHooks();
@@ -71,6 +72,17 @@ function toast(msg, ms = 2800) {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => t.classList.remove('show'), ms);
 }
+
+// ---- Startbild (lebendige Petrischale) – läuft nur, wenn die Startseite sichtbar ist
+let hero = null;
+function heroRun(on) {
+  if (on && !hero) { try { hero = new Hero($('#hero-canvas'), { t: $('#hh-t'), f: $('#hh-f'), a: $('#hh-a'), d: $('#hh-d') }); } catch (err) { console.error(err); return; } }
+  if (!hero) return;
+  const vis = on && !document.hidden && !document.body.classList.contains('capture-open');
+  vis ? hero.start() : hero.stop();
+}
+document.addEventListener('visibilitychange', () => heroRun(ui.view === 'photos' && !project.frames.length));
+new MutationObserver(() => heroRun(ui.view === 'photos' && !project.frames.length)).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
 const escHtml = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 
@@ -215,7 +227,9 @@ function updatePrimary() {
   const b = $('#primary'), n = project.frames.length;
   b.disabled = false;
   // Startseite: zwei Wege als Karten – unten kein zusätzlicher Knopf
-  document.body.classList.toggle('choosing', ui.view === 'photos' && !n);
+  const choosing = ui.view === 'photos' && !n;
+  document.body.classList.toggle('choosing', choosing);
+  heroRun(choosing);
   if (cropUI.on) { b.textContent = 'Übernehmen & weiter zum Export'; return; }
   if (ui.review) {
     const r = ui.review, last = reviewRemaining() <= 1;
@@ -2166,7 +2180,7 @@ $('#resume-discard').onclick = async () => {
   resumeOffered = false;
   $('#resume').hidden = true;
 };
-(async () => {
+const startupCheck = (async () => {
   if (!db.available) return;
   try {
     const info = await db.info();
@@ -2229,7 +2243,12 @@ $('#cap-resume-discard').onclick = async () => {
   await db.clearCaptures().catch(() => {});
   $('#cap-resume').hidden = true;
 };
-checkCaptureResume();
+const capCheck = checkCaptureResume();
+
+// Startseite erst zeigen, wenn klar ist, welche Karten (Projekt, Video, Aufnahme) erscheinen –
+// verhindert das kurze Aufblitzen beim Start
+Promise.race([Promise.allSettled([startupCheck, capCheck]), new Promise(r => setTimeout(r, 1500))])
+  .then(() => document.body.classList.remove('booting'));
 
 // Für Tests/Fehlersuche
 $('#cap-diag').onclick = openDiag;
