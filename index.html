@@ -14,17 +14,18 @@
   <link rel="icon" href="icons/icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/lab.css">
   <link rel="stylesheet" href="css/capture.css">
 </head>
 <body>
   <header class="top">
-    <div class="brand"><img src="icons/icon-192.png" alt="" width="26" height="26"><span>Lapse</span></div>
+    <div class="brand"><img src="icons/icon-192.png" alt="" width="24" height="24"><span>LAPSE</span><button class="diag-btn" id="diag-btn" aria-label="Diagnose öffnen" title="Diagnose"><i class="led"></i>DIAG</button></div>
     <nav class="steps" aria-label="Schritte">
-      <button data-view="photos" class="step active"><b>1</b> Fotos</button>
-      <button data-view="points" class="step" disabled><b>2</b> Punkte</button>
-      <button data-view="edit" class="step" disabled><b>3</b> Vorschau</button>
-      <button data-view="crop" class="step" disabled><b>4</b> Zuschnitt</button>
-      <button data-view="export" class="step" disabled><b>5</b> Export</button>
+      <button data-view="photos" class="step active"><b>01</b> Fotos</button>
+      <button data-view="points" class="step" disabled><b>02</b> Punkte</button>
+      <button data-view="edit" class="step" disabled><b>03</b> Vorschau</button>
+      <button data-view="crop" class="step" disabled><b>04</b> Zuschnitt</button>
+      <button data-view="export" class="step" disabled><b>05</b> Export</button>
     </nav>
   </header>
 
@@ -33,9 +34,23 @@
     <section id="view-photos" class="view">
       <div class="guide" id="guide-photos"><b>Schritt 1 von 5 · Fotos auswählen</b><p>Wähle alle Fotos deiner Serie aus. Danach geht es unten mit dem orangen Knopf weiter.</p></div>
       <div id="empty" class="empty">
-        <div class="empty-art" aria-hidden="true">
-          <span></span><span></span><span></span>
-        </div>
+        <svg class="lab-art" viewBox="0 0 240 132" aria-hidden="true">
+          <g fill="none" stroke-width="1">
+            <circle cx="66" cy="62" r="46" stroke="rgba(255,255,255,.22)"/>
+            <circle cx="66" cy="62" r="38" stroke="rgba(127,211,230,.55)" stroke-dasharray="3 3"/>
+            <path d="M66 10v14M66 100v14M14 62h14M104 62h14" stroke="rgba(255,255,255,.35)"/>
+            <path d="M48 50c10-8 22 4 30-2s10 12 4 18-18 6-24 0-14-8-10-16z" stroke="#ffb547" stroke-width="1.4" fill="rgba(255,181,71,.14)"/>
+            <circle cx="50" cy="44" r="3.2" stroke="#ffb547"/><circle cx="84" cy="48" r="3.2" stroke="#ffb547"/><circle cx="58" cy="80" r="3.2" stroke="#ffb547"/><circle cx="86" cy="76" r="3.2" stroke="#ffb547"/>
+            <path d="M136 108h92M136 108V22" stroke="rgba(255,255,255,.25)"/>
+            <path d="M140 96l12-6 12 2 12-14 12-4 12-20 12-8 12-18" stroke="#7fd3e6" stroke-width="1.4"/>
+            <path d="M140 102h88" stroke="rgba(255,255,255,.08)"/>
+          </g>
+          <g fill="#7c8792" font-family="ui-monospace,Menlo,monospace" font-size="7" letter-spacing=".08em">
+            <text x="136" y="120">t₀</text><text x="219" y="120">tₙ</text><text x="140" y="18">Δ FLÄCHE</text>
+            <text x="22" y="126">PROBE · REF 4 PKT</text>
+          </g>
+          <g fill="#7fd3e6"><circle cx="152" cy="90" r="1.6"/><circle cx="176" cy="78" r="1.6"/><circle cx="200" cy="54" r="1.6"/><circle cx="224" cy="28" r="1.6"/></g>
+        </svg>
         <div class="card resume" id="resume" hidden>
           <b>Letztes Projekt</b>
           <p class="muted small" id="resume-info"></p>
@@ -142,6 +157,8 @@
         <div class="stage" id="stage">
           <canvas id="preview"></canvas>
           <div class="stage-badge" id="stage-badge" hidden></div>
+          <div class="stage-hud tl" id="hud-frame"></div>
+          <div class="stage-hud br" id="hud-time"></div>
           <div class="recalc" id="recalc" hidden><i></i>Wird neu berechnet …</div>
           <div class="fs-hint" id="fs-hint">⤢ Antippen für Vollbild</div>
           <div class="anchor-layer" id="anchor-layer" hidden></div>
@@ -165,6 +182,7 @@
           <button class="btn small" id="anchor-btn" hidden>Punkte</button>
         </div>
       </div>
+      <div class="series" id="series-wrap"><canvas id="series" aria-label="Messreihe: Ausrichtung und Helligkeit je Foto"></canvas><div class="series-legend"><span class="lg-q">Ausrichtung</span><span class="lg-raw">Helligkeit roh</span><span class="lg-cor">korrigiert</span></div></div>
       <div class="strip" id="strip" role="listbox" aria-label="Bilder"></div>
       <div class="notice" id="notice" hidden>
         <p id="notice-text"></p>
@@ -442,6 +460,7 @@
     <header class="cap-top">
       <button class="cap-x" id="cap-close" aria-label="Aufnahme schließen">✕</button>
       <div class="cap-title">ZEITRAFFER<span>·</span><em>AUFNAHME</em></div>
+      <button class="diag-btn" id="cap-diag" aria-label="Diagnose öffnen"><i class="led"></i>DIAG</button>
       <ol class="cap-phases" id="cap-phases">
         <li data-p="live">01<i>Bild</i></li><li data-p="check">02<i>Prüfen</i></li><li data-p="timer">03<i>Timer</i></li><li data-p="run">04<i>Aufnahme</i></li>
       </ol>
@@ -529,11 +548,28 @@
   </footer>
 
   <div class="modal" id="progress" hidden role="dialog" aria-modal="true" aria-labelledby="progress-title">
-    <div class="modal-box">
-      <h2 id="progress-title">Bitte warten</h2>
-      <div class="bar"><i id="progress-bar"></i></div>
-      <p id="progress-text" class="muted small"></p>
-      <button class="btn ghost" id="progress-cancel">Abbrechen</button>
+    <div class="modal-box proc-box">
+      <div class="proc-head"><i class="led busy"></i><h2 id="progress-title">Bitte warten</h2><b id="proc-pct">0 %</b></div>
+      <div class="proc-bar"><i id="progress-bar"></i></div>
+      <div class="proc-meta"><span id="proc-elapsed">T+00:00</span><span id="proc-rate"></span><span id="proc-eta">REST –</span></div>
+      <p id="progress-text" class="proc-now"></p>
+      <pre class="proc-log" id="proc-log" aria-live="off"></pre>
+      <div class="btn-row">
+        <button class="btn small" id="proc-diag">⌁ Diagnose</button>
+        <button class="btn small ghost" id="progress-cancel">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal" id="diag" hidden role="dialog" aria-modal="true" aria-labelledby="diag-title">
+    <div class="modal-box diag-box">
+      <div class="proc-head"><i class="led" id="diag-led"></i><h2 id="diag-title">Diagnose</h2><button class="cap-x" id="diag-close" aria-label="Schließen">✕</button></div>
+      <div class="diag-stats" id="diag-stats"></div>
+      <p class="help">Bei Problemen: „Bericht kopieren“ und hier im Chat einfügen. Enthalten sind Messwerte, Dateinamen, Einstellungen und das Rechenprotokoll – keine Bilder.</p>
+      <pre class="proc-log diag-log" id="diag-log"></pre>
+      <div class="btn-row">
+        <button class="btn primary" id="diag-copy">Kopieren</button>
+        <button class="btn" id="diag-share">Teilen</button>
+      </div>
     </div>
   </div>
   <div class="modal" id="review" hidden role="dialog" aria-modal="true" aria-labelledby="review-title">

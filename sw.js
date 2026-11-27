@@ -3,7 +3,7 @@
 // dadurch erkennt jedes installierte Lapse neue Versionen selbstständig.
 const VERSION = 'lapse-__BUILD__';
 const ASSETS = [
-  './', 'index.html', 'manifest.webmanifest', 'css/app.css', 'css/capture.css', 'js/capture.js',
+  './', 'index.html', 'manifest.webmanifest', 'css/app.css', 'css/lab.css', 'css/capture.css', 'js/capture.js', 'js/diag.js',
   'js/app.js', 'js/project.js', 'js/pipeline.js', 'js/player.js', 'js/renderer.js', 'js/export.js',
   'js/geometry.js', 'js/version.js', 'js/direct.js', 'js/anchors.js', 'js/store.js', 'js/features.js', 'js/align-worker.js', 'js/images.js', 'js/exif.js', 'js/zip.js',
   'vendor/mp4-muxer.mjs', 'vendor/webm-muxer.mjs', 'vendor/gifenc.esm.js',

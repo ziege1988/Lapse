@@ -6,6 +6,7 @@ import { mul, I3, fitModel } from './geometry.js';
 import { assignTaps } from './anchors.js';
 import { newManual, statsOf } from './project.js';
 import { Renderer } from './renderer.js';
+import { log } from './diag.js';
 
 const ANALYSIS = { fast: { res: 1024, feats: 3000 }, precise: { res: 1600, feats: 4000 }, refine: { res: 2048, feats: 5000 } };
 export const PREVIEW_RES = 960;
@@ -78,8 +79,11 @@ export async function importFiles(files, project, aligner, { onFrame, onProgress
       await inflight; // höchstens eine Analyse parallel -> begrenzter Speicher
       // sendFeatures skaliert synchron herunter -> Original danach sofort freigeben
       inflight = sendFeatures(aligner, frame.id, src, mode)
-        .then(res => { frame.featRes = res; frame.analyzing = false; onFrame?.(frame, 'analyzed'); })
-        .catch(err => { frame.analyzing = false; frame.featError = String(err.message || err); });
+        .then(res => {
+          frame.featRes = res; frame.analyzing = false; onFrame?.(frame, 'analyzed');
+          log(`${frame.name} · ${w}×${h}${date ? ' · ' + new Date(date).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : ' · ohne Aufnahmezeit'} · Merkmale ok`, 'd');
+        })
+        .catch(err => { frame.analyzing = false; frame.featError = String(err.message || err); log(`${frame.name}: Analyse fehlgeschlagen – ${frame.featError}`, 'e'); });
       release(src);
       src = null;
       project.frames.push(frame);
@@ -87,6 +91,7 @@ export async function importFiles(files, project, aligner, { onFrame, onProgress
       onFrame?.(frame, 'added');
     } catch (err) {
       errors.push(`${file.name}: ${err.message || err}`);
+      log(`${file.name}: nicht lesbar – ${err.message || err}`, 'e');
       release(src);
     }
     onProgress?.(i + 1, files.length);
@@ -349,7 +354,9 @@ export async function alignByAnchors(project, aligner, { onProgress, isCancelled
       if (f.align?.ok && r.source !== 'anordnung') await refineAnchored(project, aligner, f);
     }
     const sure = (f.anchorPts || []).filter(p => !p.outlier && p.score >= 0.55).length;
-    if (f.align?.ok && f.align.used >= 2 && sure >= 2) {
+    const res = f.align?.ok && f.align.used >= 2 && sure >= 2;
+    log(`${f.name} · ${r.ok ? (r.source || 'merkmale') : 'nicht gefunden'} · Punkte sicher ${sure}/${anchors.length} · Anordnung ${f.geoSupport}${f.align?.ncc != null ? ' · NCC ' + f.align.ncc.toFixed(2) : ''}${f.align?.refined ? ' · verfeinert' : ''} → ${res ? 'ok' : 'zurückgestellt'}`, res ? 'd' : 'w');
+    if (res) {
       ok.push(f);
       if (f.autoExcluded) { f.excluded = false; f.autoExcluded = false; }
     } else {

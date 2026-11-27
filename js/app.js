@@ -8,6 +8,10 @@ import { inv, mul, apply, I3 } from './geometry.js';
 import { BUILD, BUILD_DATE, isDev } from './version.js';
 import { ProjectStore } from './store.js';
 import { Capture } from './capture.js';
+import { log, onLog, installHooks, buildReport, counts, stamp } from './diag.js';
+
+installHooks();
+log(`Lapse gestartet · Version ${BUILD.startsWith('__') ? 'Entwicklung' : BUILD.slice(0, 7)}`);
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -68,21 +72,96 @@ function toast(msg, ms = 2800) {
   toast._t = setTimeout(() => t.classList.remove('show'), ms);
 }
 
+const escHtml = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+
+/** Rechenprotokoll: zeigt live, was im Hintergrund berechnet wird (statt eines reinen Ladebalkens). */
 const progress = {
   cancelled: false,
   open(title, { cancellable = true } = {}) {
     this.cancelled = false;
+    this.title = title; this.t0 = Date.now(); this.frac = 0; this.lastText = ''; this.since = Date.now() - 1;
     $('#progress-title').textContent = title;
     $('#progress-text').textContent = '';
     $('#progress-bar').style.width = '0%';
+    $('#proc-pct').textContent = '0 %';
+    $('#proc-eta').textContent = 'REST –';
+    $('#proc-rate').textContent = '';
+    $('#proc-log').innerHTML = '';
     $('#progress-cancel').hidden = !cancellable;
     $('#progress').hidden = false;
+    log(`▶ ${title}`);
+    clearInterval(this.timer);
+    this.timer = setInterval(() => this.meta(), 500);
+    this.meta();
   },
   set(frac, text) {
-    if (frac != null) $('#progress-bar').style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%';
-    if (text != null) $('#progress-text').textContent = text;
+    if (frac != null) {
+      this.frac = Math.max(0, Math.min(1, frac));
+      $('#progress-bar').style.width = (this.frac * 100).toFixed(1) + '%';
+      $('#proc-pct').textContent = Math.round(this.frac * 100) + ' %';
+    }
+    if (text != null && text !== this.lastText) {
+      this.lastText = text;
+      $('#progress-text').textContent = text;
+      if (!/\d+ von \d+/.test(text)) log(text, 'd'); // Zähler nur anzeigen, Messzeilen protokollieren
+    }
+    this.meta();
   },
-  close() { $('#progress').hidden = true; },
+  meta() {
+    if ($('#progress').hidden) return;
+    const el = (Date.now() - this.t0) / 1000, f = this.frac;
+    const mmss = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+    $('#proc-elapsed').textContent = 'T+' + mmss(el);
+    $('#proc-eta').textContent = f > 0.03 && f < 1 && el > 2 ? 'REST ~' + mmss(el / f * (1 - f)) : 'REST –';
+  },
+  close() {
+    if (!$('#progress').hidden) log(`■ ${this.title} · ${((Date.now() - this.t0) / 1000).toFixed(1)} s${this.cancelled ? ' · abgebrochen' : ''}`, this.cancelled ? 'w' : 'ok');
+    clearInterval(this.timer);
+    $('#progress').hidden = true;
+  },
+};
+// Protokollzeilen live in der Konsole und Warnleuchten aktualisieren
+onLog(e => {
+  if (!$('#progress').hidden && e.t >= progress.since) {
+    const box = $('#proc-log');
+    box.insertAdjacentHTML('beforeend', `<span class="l ${e.level}"><span class="t">${stamp(e.t)}</span> ${escHtml(e.msg)}</span>`);
+    while (box.children.length > 12) box.firstChild.remove();
+  }
+  if (e.level === 'e' || e.level === 'w') updateLeds();
+  if (e.level === 'e' && Date.now() - (updateLeds.lastToast || 0) > 15000) {
+    updateLeds.lastToast = Date.now();
+    setTimeout(() => toast('Ein Fehler wurde protokolliert – oben „DIAG“ antippen und den Bericht senden.', 5000), 0);
+  }
+});
+function updateLeds() {
+  const c = counts();
+  for (const led of $$('.diag-btn .led')) { led.classList.toggle('err', c.errors > 0); led.classList.toggle('warn', !c.errors && c.warnings > 0); }
+}
+
+// ---- Diagnose
+async function openDiag() {
+  const report = await buildReport({ project, ui, build: BUILD.startsWith('__') ? 'Entwicklung' : BUILD });
+  const c = counts();
+  $('#diag-stats').innerHTML = `<div class="${c.errors ? 'bd' : ''}"><small>Fehler</small><b>${c.errors}</b></div><div class="${c.warnings ? 'wn' : ''}"><small>Warnungen</small><b>${c.warnings}</b></div><div><small>Protokoll</small><b>${c.lines}</b></div>`;
+  $('#diag-led').className = 'led' + (c.errors ? ' err' : c.warnings ? ' warn' : '');
+  $('#diag-log').textContent = report;
+  $('#diag').hidden = false;
+  openDiag.report = report;
+}
+$('#diag-btn').onclick = openDiag;
+$('#proc-diag').onclick = openDiag;
+$('#diag-close').onclick = () => { $('#diag').hidden = true; };
+$('#diag-copy').onclick = async () => {
+  const text = openDiag.report || '';
+  try { await navigator.clipboard.writeText(text); toast('Bericht kopiert – jetzt im Chat einfügen.', 3500); return; } catch { /* Rückfall */ }
+  const r = document.createRange(); r.selectNodeContents($('#diag-log'));
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  const ok = document.execCommand?.('copy');
+  toast(ok ? 'Bericht kopiert – jetzt im Chat einfügen.' : 'Text ist markiert – über „Kopieren“ übernehmen.', 3500);
+};
+$('#diag-share').onclick = async () => {
+  try { await navigator.share({ title: 'Lapse Diagnose', text: openDiag.report || '' }); }
+  catch (err) { if (err.name !== 'AbortError') toast('Teilen nicht möglich – bitte „Bericht kopieren“.', 3500); }
 };
 $('#progress-cancel').onclick = () => { progress.cancelled = true; progress.set(null, 'Wird abgebrochen …'); };
 
@@ -911,6 +990,12 @@ async function refresh({ onProgress } = {}) {
   project.computeColor();
   project.checkConsistency();
   project.assessQuality();
+  {
+    const inc = project.included, q = k => inc.filter(f => f.quality === k);
+    const c = project.crop;
+    log(`Bewertung: ${q('good').length} gut · ${q('warn').length} prüfen · ${q('bad').length} fehlerhaft · ${project.frames.length - inc.length} ausgeschlossen${c ? ` · Zuschnitt ${(c.w * 100).toFixed(0)}×${(c.h * 100).toFixed(0)} %` : ''}`, 'i');
+    for (const f of [...q('warn'), ...q('bad')]) log(`  ${f.name}: ${f.qualityNote || f.quality}${f.inconsistent ? ' (Nachbarprüfung)' : ''}`, 'd');
+  }
   $('#recalc').hidden = true;
   player?.invalidate();
   if (ui.view === 'edit') { renderStrip(); updateFramePanel(); updateCropHelp(); }
@@ -933,6 +1018,7 @@ function initPlayer() {
     if (!scrubbing) $('#scrub').value = dur ? Math.round(t / dur * 1000) : 0;
     $('#time').textContent = `${fmtClock(t)} / ${fmtClock(dur)}`;
     markCurrent(frame);
+    renderHud(t, dur, frame);
   };
   player.onPlayState = on => $('#play').classList.toggle('playing', on);
   window.addEventListener('resize', () => onStage() && layoutStage());
@@ -974,9 +1060,81 @@ $('#scrub').addEventListener('input', () => {
 $('#scrub').addEventListener('change', () => { scrubbing = false; });
 
 let lastCurrent = null;
+// Messwerte in der Vorschau: Bildnummer, Zeitabstand zur ersten Aufnahme, Qualität
+const fmtDelta = ms => {
+  if (!isFinite(ms)) return '';
+  const m = Math.round(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+  return `${d ? d + ' d ' : ''}${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')} h`;
+};
+function renderHud(t, dur, frame) {
+  const inc = project.included;
+  if (!frame || !inc.length || anc.on) { $('#hud-frame').textContent = ''; $('#hud-time').textContent = ''; return; }
+  const i = inc.indexOf(frame), when = f => f.date ?? f.modified;
+  const q = frame.quality === 'good' ? 'ok' : frame.quality === 'warn' ? 'wn' : 'bd';
+  const dt = when(frame) != null && when(inc[0]) != null ? fmtDelta(when(frame) - when(inc[0])) : '';
+  $('#hud-frame').innerHTML = `<span class="k">FRAME</span> ${String(i + 1).padStart(3, '0')}/${String(inc.length).padStart(3, '0')}${frame.id === project.refId ? ' <span class="ok">REF</span>' : ''}\n<span class="${q}">●</span> ${escHtml(frame.name.replace(/\.[^.]+$/, ''))}`;
+  const s = project.settings;
+  $('#hud-time').innerHTML = `${dt ? `<span class="k">Δt</span> +${dt}\n` : ''}<span class="k">T</span> ${fmtClock(t)} · ${s.fps || ''} fps`;
+}
+
+// Messreihe: Ausrichtungsgüte (Balken) und Helligkeit roh/korrigiert (Linien) je Foto
+function renderSeries() {
+  const c = $('#series');
+  if (!c || !c.clientWidth) return;
+  const dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(c.clientWidth * dpr), H = Math.round(c.clientHeight * dpr);
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  const fr = project.frames.filter(f => f.featRes > 0);
+  renderSeries.frames = fr;
+  if (fr.length < 2) return;
+  const n = fr.length, bw = W / n, top = 14 * dpr, bot = H - 4 * dpr, hgt = bot - top;
+  ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1;
+  ctx.beginPath(); for (const v of [0.25, 0.5, 0.75]) { ctx.moveTo(0, bot - v * hgt); ctx.lineTo(W, bot - v * hgt); } ctx.stroke();
+  // Balken: Güte der Ausrichtung
+  fr.forEach((f, i) => {
+    const a = f.align || {};
+    let v = a.ncc != null ? a.ncc : f.geoSupport != null && project.anchors.length ? f.geoSupport / project.anchors.length : a.ok ? 0.8 : 0;
+    if (f.id === project.refId) v = 1;
+    const col = f.excluded ? 'rgba(255,255,255,.12)' : f.quality === 'bad' ? '#ff6b5e' : f.quality === 'warn' ? '#ffb547' : '#5ad39a';
+    ctx.fillStyle = col; ctx.globalAlpha = f.excluded ? 1 : 0.55;
+    const h = Math.max(2 * dpr, Math.max(0, Math.min(1, v)) * hgt * 0.55);
+    ctx.fillRect(i * bw + bw * 0.2, bot - h, Math.max(1, bw * 0.6), h);
+  });
+  ctx.globalAlpha = 1;
+  // Linien: Helligkeit
+  const lum = (f, cor) => {
+    if (!f.stats) return null;
+    const m = f.stats.mean, g = cor && f.color ? f.color.gain : [1, 1, 1], o = cor && f.color ? f.color.off : [0, 0, 0];
+    return 0.2126 * (g[0] * m[0] + o[0]) + 0.7152 * (g[1] * m[1] + o[1]) + 0.0722 * (g[2] * m[2] + o[2]);
+  };
+  const vals = fr.flatMap(f => [lum(f, false), lum(f, true)]).filter(v => v != null);
+  if (vals.length) {
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (hi - lo < 0.08) { const m = (hi + lo) / 2; lo = m - 0.04; hi = m + 0.04; }
+    const y = v => bot - (v - lo) / (hi - lo) * hgt * 0.9 - hgt * 0.05;
+    for (const [cor, col, lw] of [[false, 'rgba(255,255,255,.45)', 1], [true, '#7fd3e6', 1.5]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = lw * dpr; ctx.beginPath();
+      let started = false;
+      fr.forEach((f, i) => { const v = lum(f, cor); if (v == null || f.excluded) return; const X = (i + 0.5) * bw; started ? ctx.lineTo(X, y(v)) : ctx.moveTo(X, y(v)); started = true; });
+      ctx.stroke();
+    }
+  }
+  // aktuelles Bild
+  const cur = fr.indexOf(ui.selected || lastCurrent);
+  if (cur >= 0) { ctx.fillStyle = 'rgba(255,181,71,.9)'; ctx.fillRect((cur + 0.5) * bw - dpr / 2, top - 6 * dpr, Math.max(1, dpr), H); }
+}
+$('#series').addEventListener('click', e => {
+  const fr = renderSeries.frames || [], r = e.currentTarget.getBoundingClientRect();
+  const f = fr[Math.floor((e.clientX - r.left) / r.width * fr.length)];
+  if (f && player && !anc.on) selectFrame(f);
+});
+window.addEventListener('resize', () => onStage() && renderSeries());
+
 function markCurrent(frame) {
   if (!frame || frame === lastCurrent) return;
   lastCurrent = frame;
+  renderSeries();
   const strip = $('#strip');
   strip.querySelector('.sf.cur')?.classList.remove('cur');
   const el = strip.querySelector(`[data-id="${frame.id}"]`);
@@ -987,6 +1145,7 @@ function markCurrent(frame) {
 }
 
 function renderStrip() {
+  requestAnimationFrame(renderSeries);
   const frames = project.frames.filter(f => f.featRes > 0);
   $('#strip').innerHTML = frames.map(f => {
     const badges = [];
@@ -2073,4 +2232,5 @@ $('#cap-resume-discard').onclick = async () => {
 checkCaptureResume();
 
 // Für Tests/Fehlersuche
-window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner, refresh, capture };
+$('#cap-diag').onclick = openDiag;
+window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner, refresh, capture, openDiag };
