@@ -255,6 +255,10 @@
             <div class="muted small">Bild antippen – dann im Vollbild den Rahmen mit dem Finger verschieben oder an den Ecken ziehen.</div>
           </div>
         </div>
+        <div class="btn-row crop-actions">
+          <button class="btn" id="crop-play">▶ Video abspielen</button>
+          <button class="btn primary" id="crop-edit">✂ Ausschnitt bearbeiten</button>
+        </div>
         <div class="field">
           <span class="label">Format</span>
           <div class="seg wrap" id="crop-aspect">
@@ -263,10 +267,25 @@
           </div>
         </div>
         <p class="help">Nur im hellen Bereich haben alle Fotos Bildinhalt – der Rahmen bleibt deshalb darin, damit keine Ränder entstehen.</p>
-        <button class="btn primary wide" id="crop-edit">✂ Ausschnitt im Vollbild bearbeiten</button>
         <div class="btn-row">
           <button class="btn" id="crop-auto">Automatisch (größtmöglich)</button>
           <button class="btn ghost" id="crop-cancel">Änderungen verwerfen</button>
+        </div>
+
+        <div class="scale-box" id="roi-box">
+          <div class="scale-head">
+            <span class="sec">Zoom-Ausschnitt</span>
+            <span class="scale-state off" id="roi-state">aus</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="roi-on"><span>Vergrößerte Region in einer Ecke zeigen</span></label>
+          <button class="btn" id="roi-edit">⌖ Region wählen</button>
+          <div class="roi-opts">
+            <div><span class="label">Ecke</span>
+              <div class="seg" id="inset-pos"><button data-v="tl" aria-label="oben links">↖</button><button data-v="tr" aria-label="oben rechts">↗</button><button data-v="bl" aria-label="unten links">↙</button><button data-v="br" aria-label="unten rechts">↘</button></div></div>
+            <div><span class="label">Größe</span>
+              <div class="seg" id="inset-size"><button data-v="0.28">S</button><button data-v="0.38">M</button><button data-v="0.5">L</button></div></div>
+          </div>
+          <p class="help">Die Region wird im Video dezent weiß umrahmt und daneben vergrößert gezeigt – live mit dem Zeitraffer.</p>
         </div>
 
         <div class="scale-box" id="scale-box">
@@ -507,6 +526,9 @@
           <label class="scale-input"><input type="number" id="scale-mm" inputmode="decimal" min="0.01" step="0.1" aria-label="Abstand in Millimeter"><span>mm</span></label>
         </div>
         <p class="ed-info" id="scale-info"></p>
+      </div>
+      <div id="ed-roi">
+        <p class="ed-info" id="roi-info"></p>
       </div>
     </div>
   </div>

@@ -127,6 +127,13 @@ export class Renderer {
     for (const [k, v] of [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
   }
 
+  /** Einblendung über das ganze Bild legen (nach allen Ebenen). */
+  drawOverlay() {
+    if (!this.ov || this.lost) return;
+    this.gl.viewport(0, 0, this._vw || this.canvas.width, this._vh || this.canvas.height);
+    this._drawOverlay();
+  }
+
   _drawOverlay() {
     const gl = this.gl;
     gl.enable(gl.BLEND);
@@ -176,16 +183,18 @@ export class Renderer {
    * Zeichnet Ebenen [{key, M, gain, off, mul, weight}] (Gewichte summieren zu 1).
    * opts: { global:[exp,contrast,sat], mode:'normal'|'difference', target: {w,h} für Offscreen }
    */
-  draw(layers, { global = [1, 1, 1], mode = 'normal', target = null, overlay = false } = {}) {
+  draw(layers, { global = [1, 1, 1], mode = 'normal', target = null, overlay = false, viewport = null, clear = true } = {}) {
     const gl = this.gl;
     if (this.lost) return false;
     let w = this.canvas.width, h = this.canvas.height;
     if (target) { this._bindFbo(target.w, target.h); w = target.w; h = target.h; }
     else gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, w, h);
+    this._vw = w; this._vh = h;
     gl.disable(gl.BLEND);
-    gl.clearColor(0, 0, 0, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.viewport(0, 0, w, h);
+    if (clear) { gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
+    // Teilbereich (z. B. Zoom-Ausschnitt), Angabe von oben links in Pixeln
+    if (viewport) gl.viewport(Math.round(viewport.x), Math.round(h - viewport.y - viewport.h), Math.round(viewport.w), Math.round(viewport.h));
     const usable = layers.filter(L => this.textures.has(L.key) && L.weight > 0);
     if (!usable.length) return false;
     gl.uniform3fv(this.loc.u_global, global);

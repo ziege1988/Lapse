@@ -1,7 +1,7 @@
 // Export: rendert jedes Videobild in voller Auflösung aus den Originaldateien und
 // kodiert es (WebCodecs + MP4/WebM-Muxer, GIF oder JPEG-Einzelbilder als ZIP).
 
-import { makeOverlay } from './overlay.js';
+import { makeOverlay, drawComposite } from './overlay.js';
 import { Renderer } from './renderer.js';
 import { decode, release, scaleTo, freeCanvas, makeCanvas, toBlob } from './images.js';
 import { ZipWriter } from './zip.js';
@@ -172,7 +172,7 @@ export async function runExport(project, exp, { onProgress, isCancelled } = {}) 
       const next = tl.sample((j + 1) / fps);
       for (const s of next) if (!r.has('x' + s.frame.id)) { src.ensure(s.frame).catch(() => {}); break; }
       const layers = samples.map(s => project.layer(s.frame, s.weight, 'x'));
-      r.draw(layers, { global, overlay: true });
+      drawComposite(r, project, layers, { global, W: w, H: h });
       r.trim(6, new Set([...layers.map(L => L.key), ...next.map(s => 'x' + s.frame.id)]));
     };
     if (format === 'gif') return await exportGif(canvas, drawAt, { w, h, fps, total, colors: plan.colors, stamp, onProgress, isCancelled });
@@ -277,7 +277,7 @@ async function exportZip(project, r, src, canvas, global, { w, h, stamp, jpegQ =
     if (isCancelled?.()) throw new DOMException('Abgebrochen', 'AbortError');
     const f = list[i];
     await src.ensure(f);
-    r.draw([project.layer(f, 1, 'x')], { global, overlay: true });
+    drawComposite(r, project, [project.layer(f, 1, 'x')], { global, W: w, H: h });
     r.trim(2, new Set(['x' + f.id]));
     const blob = await toBlob(canvas, 'image/jpeg', jpegQ);
     const base = f.name.replace(/\.[^.]+$/, '');

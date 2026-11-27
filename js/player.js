@@ -3,7 +3,7 @@
 
 import { Renderer } from './renderer.js';
 import { I3 } from './geometry.js';
-import { makeOverlay, overlaySig } from './overlay.js';
+import { makeOverlay, overlaySig, drawComposite } from './overlay.js';
 
 const CACHE = 48;
 
@@ -112,7 +112,9 @@ export class Player {
       const { width: W, height: H } = this.r.canvas, sig = overlaySig(this.project, W, H);
       if (sig !== this._ovSig) { this._ovSig = sig; this.r.setOverlay(sig === 'none' ? null : makeOverlay(this.project, W, H)); }
     }
-    this.r.draw(layers, { global: neutral ? [1, 1, 1] : this.project.globalParams(), mode, overlay: withOv });
+    const global = neutral ? [1, 1, 1] : this.project.globalParams();
+    if (withOv) drawComposite(this.r, this.project, layers, { global, W: this.r.canvas.width, H: this.r.canvas.height });
+    else this.r.draw(layers, { global, mode });
     this.r.trim(CACHE, new Set(layers.map(L => L.key)));
     const tl = this.timeline();
     this.onTime?.(this.t, tl.duration, layers[0]?.frame);

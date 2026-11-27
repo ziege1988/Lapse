@@ -210,3 +210,14 @@ body.ed-open { overflow: hidden; }
 /* Zuschnitt: Foto scrollt normal mit (Bearbeiten im Vollbild-Editor) */
 body.crop-mode .stage-wrap { position: static; }
 body.ed-open .toast { bottom: auto; top: calc(64px + var(--safe-t)); z-index: 260; }
+
+/* Zoom-Ausschnitt */
+.crop-actions { margin: 4px 0 10px; }
+.crop-actions .btn { min-height: 46px; }
+#crop-play.on { border-color: var(--accent); color: var(--accent); }
+.roi-opts { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; }
+.roi-opts .label { margin-bottom: 4px; }
+.roi-opts .seg button { font-size: 16px; padding: 0 4px; }
+#inset-size button { font: 600 13px var(--mono); }
+.scale-box .seg.dim, .roi-box .dim { opacity: .4; pointer-events: none; }
+#roi-box .roi-opts.dim { opacity: .4; pointer-events: none; }

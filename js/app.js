@@ -659,12 +659,14 @@ function openCrop() {
   layoutStage();
   renderCrop();
   updateScaleUI();
+  updateRoiUI();
   updatePrimary();
   window.scrollTo({ top: 0 });
 }
 
 function closeCrop(apply, { silent = false } = {}) {
   if (!cropUI.on) return;
+  stopCropPlay();
   if (ed.open) closeEditor(false);
   if (scl.edit) { scl.edit = false; document.body.classList.remove('scale-mode'); }
   if (apply && cropUI.rect) {
@@ -708,9 +710,9 @@ function renderCrop() {
     <rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="#f3c08a" stroke-width="${0.006 * rw}"/>
     <path d="M${r.x + r.w / 3} ${r.y}V${r.y + r.h}M${r.x + 2 * r.w / 3} ${r.y}V${r.y + r.h}M${r.x} ${r.y + r.h / 3}H${r.x + r.w}M${r.x} ${r.y + 2 * r.h / 3}H${r.x + r.w}" stroke="rgba(255,255,255,.35)" stroke-width="${0.002 * rw}"/>
     ${corners.map(([x, y]) => `<rect x="${x - hs / 2}" y="${y - hs / 2}" width="${hs}" height="${hs}" rx="${hs / 4}" fill="#f3c08a" stroke="#000" stroke-width="${0.002 * rw}"/>`).join('')}
-  ${scaleSvg(rw)}</svg>`;
+  ${scaleSvg(rw)}${pageRoiSvg(rw)}</svg>`;
   if (!(ed.open && (cropUI.drag || scl.drag))) $('#crop-layer').innerHTML = svg + '<span class="crop-tap">✎ Antippen zum Bearbeiten</span>';
-  if (ed.open) $('#ed-svg').innerHTML = svg;
+  if (ed.open) $('#ed-svg').innerHTML = ed.mode === 'roi' ? roiSvg(rw, rh) : svg;
   $$('#crop-aspect button, #ed-aspect button').forEach(b => b.classList.toggle('on', b.dataset.v === cropUI.key));
   updateCropState();
 }
@@ -720,6 +722,7 @@ const ed = { open: false, mode: 'crop', url: null, img: null, saved: null };
 
 function openEditor(mode) {
   if (!cropUI.on) return;
+  stopCropPlay();
   ed.mode = mode;
   ed.saved = { rect: { ...cropUI.rect }, key: cropUI.key, auto: cropUI.auto };
   const ref = project.ref;
@@ -732,12 +735,20 @@ function openEditor(mode) {
   $('#ed-done').disabled = false;
   $('#ed').hidden = false;
   document.body.classList.add('ed-open');
-  $('#ed-title').textContent = mode === 'scale' ? 'Maßstab kalibrieren' : 'Bildausschnitt';
+  $('#ed-title').textContent = mode === 'scale' ? 'Maßstab kalibrieren' : mode === 'roi' ? 'Zoom-Region' : 'Bildausschnitt';
   $('#ed-crop').hidden = mode !== 'crop';
   $('#ed-scale').hidden = mode !== 'scale';
+  $('#ed-roi').hidden = mode !== 'roi';
+  if (mode === 'roi') {
+    const c = cropUI.rect, r = project.settings.roi;
+    ed.roi = r ? { ...r } : { x: c.x + c.w * 0.35, y: c.y + c.h * 0.35, w: c.w * 0.3, h: c.h * 0.3 };
+    setRoiRect(ed.roi);
+  }
   $('#ed-hint').textContent = mode === 'scale'
     ? 'Zwei Punkte mit bekanntem Abstand antippen – am besten gegenüberliegende Außenkanten der Schale. Zum Feinjustieren den Punkt mit dem Finger ziehen (Lupe).'
-    : 'Rahmen verschieben, an Ecken oder Kanten ziehen – oder außerhalb des Rahmens einen neuen aufziehen. Der helle Bereich enthält in allen Fotos Bildinhalt.';
+    : mode === 'roi'
+      ? 'Region aufziehen, verschieben oder an Ecken/Kanten ziehen. Sie wird im Video weiß umrahmt und in einer Ecke vergrößert gezeigt.'
+      : 'Rahmen verschieben, an Ecken oder Kanten ziehen – oder außerhalb des Rahmens einen neuen aufziehen. Der helle Bereich enthält in allen Fotos Bildinhalt.';
   edLayout();
   renderCrop(); updateScaleUI();
 }
@@ -747,6 +758,12 @@ function closeEditor(apply) {
   if (ed.mode === 'scale') {
     if (apply && !applyScale()) return;
     scl.edit = false; scl.drag = null;
+  } else if (ed.mode === 'roi') {
+    if (apply) {
+      project.settings.roi = { ...ed.roi }; project.settings.roiOn = true;
+      log(`Zoom-Region gesetzt: ${['x', 'y', 'w', 'h'].map(k => ed.roi[k].toFixed(3)).join(' ')}`, 'ok');
+      scheduleSave(); player?.render();
+    }
   } else if (!apply && ed.saved) {
     cropUI.rect = ed.saved.rect; cropUI.key = ed.saved.key; cropUI.auto = ed.saved.auto;
   }
@@ -754,7 +771,7 @@ function closeEditor(apply) {
   $('#ed').hidden = true;
   $('#ed-loupe').hidden = true;
   document.body.classList.remove('ed-open');
-  renderCrop(); updateScaleUI();
+  renderCrop(); updateScaleUI(); updateRoiUI();
 }
 
 /** Bild im verfügbaren Platz einpassen (Seitenverhältnis des Bezugsfotos). */
@@ -794,6 +811,100 @@ $('#crop-layer').addEventListener('click', () => openEditor('crop'));
 $('#crop-edit').onclick = () => openEditor('crop');
 $('#ed-aspect').addEventListener('click', e => { const b = e.target.closest('button'); if (b) $(`#crop-aspect button[data-v="${b.dataset.v}"]`)?.click(); });
 $('#ed-auto').onclick = () => $('#crop-auto').click();
+
+// ---- Zoom-Ausschnitt (Region of Interest)
+const edRect = () => (ed.open && ed.mode === 'roi' ? ed.roi : cropUI.rect);
+
+/** Region übernehmen, aber innerhalb des Bildausschnitts halten. */
+function setRoiRect(c) {
+  const C = cropUI.rect, min = 0.04 * Math.min(C.w, C.h);
+  const w = Math.max(min, Math.min(c.w, C.w)), h = Math.max(min, Math.min(c.h, C.h));
+  ed.roi = { x: Math.min(Math.max(c.x, C.x), C.x + C.w - w), y: Math.min(Math.max(c.y, C.y), C.y + C.h - h), w, h };
+  updateRoiInfo();
+}
+
+function updateRoiInfo() {
+  if (!ed.open || ed.mode !== 'roi') return;
+  const C = cropUI.rect, r = ed.roi, k = mmPerUnit(project);
+  const size = k ? ` · ${fmtLength(r.w * k)} × ${fmtLength(r.h * k)}` : '';
+  const ins = (project.settings.insetSize || 0.38) / (r.w / C.w);
+  $('#roi-info').textContent = `Region ${Math.round(r.w / C.w * 100)} × ${Math.round(r.h / C.h * 100)} % des Ausschnitts${size} → im Video ca. ${String(+Math.max(1, ins).toFixed(1)).replace('.', ',')}× vergrößert`;
+}
+
+/** Editor-Darstellung im Modus „roi“: Ausschnitt hell, Region weiß mit Griffen. */
+function roiSvg(rw, rh) {
+  const C = cropUI.rect, r = ed.roi, hs = 0.03 * Math.max(rw, rh), lw = 0.004 * rw;
+  const corners = [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
+  return `<svg viewBox="0 0 ${rw} ${rh}" preserveAspectRatio="none">
+    <path d="M0 0H${rw}V${rh}H0Z M${C.x} ${C.y}V${C.y + C.h}H${C.x + C.w}V${C.y}Z" fill="rgba(0,0,0,.68)" fill-rule="evenodd"/>
+    <path d="M${C.x} ${C.y}V${C.y + C.h}H${C.x + C.w}V${C.y}Z M${r.x} ${r.y}V${r.y + r.h}H${r.x + r.w}V${r.y}Z" fill="rgba(0,0,0,.3)" fill-rule="evenodd"/>
+    <rect x="${C.x}" y="${C.y}" width="${C.w}" height="${C.h}" fill="none" stroke="rgba(243,192,138,.7)" stroke-width="${lw}" stroke-dasharray="${lw * 3} ${lw * 2}"/>
+    <rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="#fff" stroke-width="${lw * 1.2}"/>
+    ${corners.map(([x, y]) => `<rect x="${x - hs / 2}" y="${y - hs / 2}" width="${hs}" height="${hs}" rx="${hs / 4}" fill="#fff" stroke="#000" stroke-width="${lw * 0.5}"/>`).join('')}
+  </svg>`;
+}
+
+/** Auf der Seite: gewählte Region dezent zeigen (wenn eingeschaltet). */
+function pageRoiSvg(rw) {
+  const st = project.settings, r = st.roi;
+  if (!st.roiOn || !r || (ed.open && ed.mode === 'roi')) return '';
+  return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="${0.004 * rw}"/>`;
+}
+
+function updateRoiUI() {
+  const st = project.settings, has = !!st.roi;
+  $('#roi-on').checked = !!st.roiOn && has;
+  $('#roi-edit').textContent = has ? '⌖ Region ändern' : '⌖ Region wählen';
+  $('.roi-opts').classList.toggle('dim', !(st.roiOn && has));
+  $$('#inset-pos button').forEach(b => b.classList.toggle('on', b.dataset.v === (st.insetPos || 'tr')));
+  $$('#inset-size button').forEach(b => b.classList.toggle('on', Math.abs(+b.dataset.v - (st.insetSize || 0.38)) < 1e-6));
+  const C = project.crop, k = mmPerUnit(project);
+  $('#roi-state').classList.toggle('off', !(st.roiOn && has));
+  $('#roi-state').textContent = st.roiOn && has
+    ? (k ? `${fmtLength(st.roi.w * k)} × ${fmtLength(st.roi.h * k)}` : 'an') + (C ? ` · ${String(+((st.insetSize || 0.38) / (st.roi.w / C.w)).toFixed(1)).replace('.', ',')}×` : '')
+    : 'aus';
+}
+function roiChanged() { updateRoiUI(); renderCrop(); player?.render(); scheduleSave(); }
+$('#roi-on').onchange = e => {
+  if (e.target.checked && !project.settings.roi) { e.target.checked = false; openEditor('roi'); return; }
+  project.settings.roiOn = e.target.checked; roiChanged();
+};
+$('#roi-edit').onclick = () => { stopCropPlay(); openEditor('roi'); };
+$('#inset-pos').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; project.settings.insetPos = b.dataset.v; roiChanged(); });
+$('#inset-size').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; project.settings.insetSize = +b.dataset.v; roiChanged(); });
+
+// ---- Video im Zuschnitt-Schritt abspielen (mit Zuschnitt, Zoom-Fenster und Einblendungen)
+let cropPlaying = false;
+function startCropPlay() {
+  if (!cropUI.on || cropPlaying) return;
+  // aktuellen Rahmen schon für die Wiedergabe übernehmen
+  project.customCrop = cropUI.auto ? null : { ...cropUI.rect, key: cropUI.key };
+  project.computeCrop();
+  cropPlaying = true;
+  anc.on = false;
+  $('#crop-layer').hidden = true;
+  $('#crop-play').classList.add('on');
+  $('#crop-play').textContent = '■ Stopp';
+  player.invalidate();
+  layoutStage();
+  player.stopInspect();
+  player.play();
+}
+function stopCropPlay() {
+  if (!cropPlaying) return;
+  cropPlaying = false;
+  player.pause();
+  $('#crop-play').classList.remove('on');
+  $('#crop-play').textContent = '▶ Video abspielen';
+  if (!cropUI.on) return;
+  anc.on = true; anc.frame = project.ref;
+  $('#crop-layer').hidden = false;
+  player.showRaw(project.ref);
+  layoutStage();
+  renderCrop();
+}
+$('#crop-play').onclick = () => (cropPlaying ? stopCropPlay() : startCropPlay());
+$('#preview').addEventListener('click', () => { if (cropPlaying) stopCropPlay(); });
 
 // ---- Maßstab: Kalibrierung im Bezugsfoto, Balken im Video
 const scl = { edit: false, pts: [], mm: 90, drag: null };
@@ -961,7 +1072,7 @@ cropLayer.addEventListener('pointerdown', e => {
   if (!cropUI.on) return;
   const ref = project.ref, m = Math.max(ref.w, ref.h), rect = cropLayer.getBoundingClientRect();
   const sx = rect.width / (ref.w / m);   // Bildschirmpunkte je kanonische Einheit
-  const x = (e.clientX - rect.left) / sx, y = (e.clientY - rect.top) / sx, r = cropUI.rect;
+  const x = (e.clientX - rect.left) / sx, y = (e.clientY - rect.top) / sx, r = edRect();
   if (scl.edit) {
     // Maßstab: Punkt setzen, nächstgelegenen Punkt greifen oder (bei 2 Punkten) den näheren versetzen
     let k = scl.pts.findIndex(p => Math.hypot(p.x - x, p.y - y) < 34 / sx);
@@ -1010,7 +1121,8 @@ cropLayer.addEventListener('pointermove', e => {
   const d = cropUI.drag;
   if (!d) return;
   const x = (e.clientX - d.rect.left) / d.sx, y = (e.clientY - d.rect.top) / d.sx, r0 = d.r0;
-  const ratio = CROP_ASPECTS[cropUI.key];
+  const ratio = ed.mode === 'roi' ? null : CROP_ASPECTS[cropUI.key];
+  const setRect = ed.mode === 'roi' ? setRoiRect : setCropRect;
   // Rahmen aus fester Ecke (fx, fy) und Fingerposition, Seitenverhältnis beachten
   const fromFixed = (fx, fy) => {
     let w = Math.abs(x - fx), h = Math.abs(y - fy);
@@ -1019,10 +1131,10 @@ cropLayer.addEventListener('pointermove', e => {
   };
   if (d.mode === 'move') {
     // getrennt nach Achsen -> der Rahmen gleitet am Rand entlang statt stehen zu bleiben
-    setCropRect({ ...cropUI.rect, x: r0.x + x - d.x0 });
-    setCropRect({ ...cropUI.rect, y: r0.y + y - d.y0 });
+    setRect({ ...edRect(), x: r0.x + x - d.x0 });
+    setRect({ ...edRect(), y: r0.y + y - d.y0 });
   } else if (d.mode === 'corner') {
-    setCropRect(fromFixed(d.corner % 2 === 0 ? r0.x + r0.w : r0.x, d.corner < 2 ? r0.y + r0.h : r0.y));
+    setRect(fromFixed(d.corner % 2 === 0 ? r0.x + r0.w : r0.x, d.corner < 2 ? r0.y + r0.h : r0.y));
   } else if (d.mode === 'edge') {
     let n = { ...r0 };
     if (d.edge === 'l') { n.x = Math.min(x, r0.x + r0.w - 0.06); n.w = r0.x + r0.w - n.x; }
@@ -1033,10 +1145,10 @@ cropLayer.addEventListener('pointermove', e => {
       if (d.edge === 'l' || d.edge === 'r') { const h = n.w / ratio; n.y = r0.y + (r0.h - h) / 2; n.h = h; }
       else { const w = n.h * ratio; n.x = r0.x + (r0.w - w) / 2; n.w = w; }
     }
-    setCropRect(n);
+    setRect(n);
   } else if (Math.hypot(x - d.x0, y - d.y0) > 12 / d.sx) {
     // neuer Rahmen: vom Startpunkt aufziehen
-    setCropRect(fromFixed(d.x0, d.y0));
+    setRect(fromFixed(d.x0, d.y0));
   }
   scheduleCropRender();
 });
