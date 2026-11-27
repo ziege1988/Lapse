@@ -292,9 +292,10 @@
 
       <div class="panel" id="panel-video">
         <div class="field">
-          <span class="label">Fotos pro Sekunde <output data-out="pps"></output></span>
-          <input type="range" data-set="pps" min="1" max="60" step="1">
-          <p class="help">Bestimmt die Geschwindigkeit. Dauer: <b id="dur-readout">–</b></p>
+          <span class="label">Zeit pro Foto <output id="spf-out"></output></span>
+          <input type="range" id="spf" min="0" step="1" aria-label="Zeit pro Foto">
+          <div class="chips" id="spf-chips"><button data-s="0.05">0,05 s</button><button data-s="0.1">0,1 s</button><button data-s="0.2">0,2 s</button><button data-s="0.5">0,5 s</button><button data-s="1">1 s</button></div>
+          <p class="help">Länger pro Foto = langsameres Video – langsame Bewegungen werden besser sichtbar. Dauer: <b id="dur-readout">–</b></p>
         </div>
         <label class="switch"><input type="checkbox" data-set="crossfade"><span>Weiche Überblendung zwischen Fotos</span></label>
         <details class="more">

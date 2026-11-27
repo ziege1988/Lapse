@@ -709,7 +709,7 @@ function renderCrop() {
     <path d="M${r.x + r.w / 3} ${r.y}V${r.y + r.h}M${r.x + 2 * r.w / 3} ${r.y}V${r.y + r.h}M${r.x} ${r.y + r.h / 3}H${r.x + r.w}M${r.x} ${r.y + 2 * r.h / 3}H${r.x + r.w}" stroke="rgba(255,255,255,.35)" stroke-width="${0.002 * rw}"/>
     ${corners.map(([x, y]) => `<rect x="${x - hs / 2}" y="${y - hs / 2}" width="${hs}" height="${hs}" rx="${hs / 4}" fill="#f3c08a" stroke="#000" stroke-width="${0.002 * rw}"/>`).join('')}
   ${scaleSvg(rw)}</svg>`;
-  $('#crop-layer').innerHTML = svg + '<span class="crop-tap">✎ Antippen zum Bearbeiten</span>';
+  if (!(ed.open && (cropUI.drag || scl.drag))) $('#crop-layer').innerHTML = svg + '<span class="crop-tap">✎ Antippen zum Bearbeiten</span>';
   if (ed.open) $('#ed-svg').innerHTML = svg;
   $$('#crop-aspect button, #ed-aspect button').forEach(b => b.classList.toggle('on', b.dataset.v === cropUI.key));
   updateCropState();
@@ -737,7 +737,7 @@ function openEditor(mode) {
   $('#ed-scale').hidden = mode !== 'scale';
   $('#ed-hint').textContent = mode === 'scale'
     ? 'Zwei Punkte mit bekanntem Abstand antippen – am besten gegenüberliegende Außenkanten der Schale. Zum Feinjustieren den Punkt mit dem Finger ziehen (Lupe).'
-    : 'Rahmen mit dem Finger verschieben oder an den Ecken ziehen. Der helle Bereich enthält in allen Fotos Bildinhalt.';
+    : 'Rahmen verschieben, an Ecken oder Kanten ziehen – oder außerhalb des Rahmens einen neuen aufziehen. Der helle Bereich enthält in allen Fotos Bildinhalt.';
   edLayout();
   renderCrop(); updateScaleUI();
 }
@@ -820,7 +820,7 @@ function scaleSvg(rw) {
       ? { settings: project.settings, refId: project.refId, scale: { p1: scl.pts[0], p2: scl.pts[1], mm: scl.mm, refId: project.refId } }
       : project;
     const W = 720, H = Math.max(2, Math.round(W * r.h / r.w)), sig = overlaySig(tmp, W, H, r);
-    if (sig !== 'none') {
+    if (sig !== 'none' && !(cropUI.drag && scaleSvg.url)) {
       if (scaleSvg.sig !== sig) { scaleSvg.sig = sig; scaleSvg.url = makeOverlay(tmp, W, H, r)?.toDataURL('image/png') || ''; }
       if (scaleSvg.url) out += `<image href="${scaleSvg.url}" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" preserveAspectRatio="none"/>`;
     }
@@ -975,45 +975,72 @@ cropLayer.addEventListener('pointerdown', e => {
     showLoupe(e.clientX, e.clientY, scl.pts[k].x, scl.pts[k].y);
     return;
   }
+  // Was wurde gegriffen? Ecke > Kante > Innenfläche; außerhalb: neuen Rahmen aufziehen
+  const tol = 28 / sx;
   const corners = [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
-  let corner = -1, best = 30 / sx;
+  let corner = -1, best = tol;
   corners.forEach(([cx, cy], k) => { const d = Math.hypot(cx - x, cy - y); if (d < best) { best = d; corner = k; } });
+  const inY = y > r.y - tol && y < r.y + r.h + tol, inX = x > r.x - tol && x < r.x + r.w + tol;
+  let edge = null;
+  if (corner < 0) {
+    if (inY && Math.abs(x - r.x) < tol) edge = 'l';
+    else if (inY && Math.abs(x - r.x - r.w) < tol) edge = 'r';
+    else if (inX && Math.abs(y - r.y) < tol) edge = 't';
+    else if (inX && Math.abs(y - r.y - r.h) < tol) edge = 'b';
+  }
   const inside = x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
-  if (corner < 0 && !inside) return;
-  cropUI.drag = { corner, x0: x, y0: y, r0: { ...r }, sx, rect };
+  const mode = corner >= 0 ? 'corner' : edge ? 'edge' : inside ? 'move' : 'new';
+  cropUI.drag = { mode, corner, edge, x0: x, y0: y, r0: { ...r }, sx, rect };
   cropLayer.setPointerCapture(e.pointerId);
 });
+
+let cropRaf = 0;
+const scheduleCropRender = () => { if (!cropRaf) cropRaf = requestAnimationFrame(() => { cropRaf = 0; renderCrop(); }); };
+
 cropLayer.addEventListener('pointermove', e => {
   if (scl.drag) {
     const d = scl.drag;
     const ref = project.ref, m = Math.max(ref.w, ref.h);
     const x = Math.max(0, Math.min(ref.w / m, (e.clientX - d.rect.left) / d.sx)), y = Math.max(0, Math.min(ref.h / m, (e.clientY - d.rect.top) / d.sx));
     scl.pts[d.k] = { x, y };
-    renderCrop(); updateScaleUI();
-    showLoupe(e.clientX, e.clientY, x, y);
+    scheduleCropRender(); updateScaleUI();
+    showLoupe(e.clientX, e.clientY, x, y);   // Lupe nur beim Kalibrieren
     return;
   }
   const d = cropUI.drag;
   if (!d) return;
   const x = (e.clientX - d.rect.left) / d.sx, y = (e.clientY - d.rect.top) / d.sx, r0 = d.r0;
-  if (d.corner < 0) {
-    // getrennt nach Achsen -> der Rahmen gleitet am Rand entlang statt stehen zu bleiben
-    const tx = r0.x + x - d.x0, ty = r0.y + y - d.y0;
-    setCropRect({ ...cropUI.rect, x: tx });
-    setCropRect({ ...cropUI.rect, y: ty });
-  } else {
-    // gegenüberliegende Ecke bleibt fest
-    const fx = d.corner % 2 === 0 ? r0.x + r0.w : r0.x, fy = d.corner < 2 ? r0.y + r0.h : r0.y;
+  const ratio = CROP_ASPECTS[cropUI.key];
+  // Rahmen aus fester Ecke (fx, fy) und Fingerposition, Seitenverhältnis beachten
+  const fromFixed = (fx, fy) => {
     let w = Math.abs(x - fx), h = Math.abs(y - fy);
-    const ratio = CROP_ASPECTS[cropUI.key];
     if (ratio) { if (w / h > ratio) h = w / ratio; else w = h * ratio; }
-    setCropRect({ x: x < fx ? fx - w : fx, y: y < fy ? fy - h : fy, w, h });
-    const c = cropUI.rect;
-    showLoupe(e.clientX, e.clientY, d.corner % 2 ? c.x + c.w : c.x, d.corner < 2 ? c.y : c.y + c.h);
+    return { x: x < fx ? fx - w : fx, y: y < fy ? fy - h : fy, w, h };
+  };
+  if (d.mode === 'move') {
+    // getrennt nach Achsen -> der Rahmen gleitet am Rand entlang statt stehen zu bleiben
+    setCropRect({ ...cropUI.rect, x: r0.x + x - d.x0 });
+    setCropRect({ ...cropUI.rect, y: r0.y + y - d.y0 });
+  } else if (d.mode === 'corner') {
+    setCropRect(fromFixed(d.corner % 2 === 0 ? r0.x + r0.w : r0.x, d.corner < 2 ? r0.y + r0.h : r0.y));
+  } else if (d.mode === 'edge') {
+    let n = { ...r0 };
+    if (d.edge === 'l') { n.x = Math.min(x, r0.x + r0.w - 0.06); n.w = r0.x + r0.w - n.x; }
+    if (d.edge === 'r') n.w = Math.max(0.06, x - r0.x);
+    if (d.edge === 't') { n.y = Math.min(y, r0.y + r0.h - 0.06); n.h = r0.y + r0.h - n.y; }
+    if (d.edge === 'b') n.h = Math.max(0.06, y - r0.y);
+    if (ratio) { // Seitenverhältnis halten: andere Achse mittig anpassen
+      if (d.edge === 'l' || d.edge === 'r') { const h = n.w / ratio; n.y = r0.y + (r0.h - h) / 2; n.h = h; }
+      else { const w = n.h * ratio; n.x = r0.x + (r0.w - w) / 2; n.w = w; }
+    }
+    setCropRect(n);
+  } else if (Math.hypot(x - d.x0, y - d.y0) > 12 / d.sx) {
+    // neuer Rahmen: vom Startpunkt aufziehen
+    setCropRect(fromFixed(d.x0, d.y0));
   }
-  renderCrop();
+  scheduleCropRender();
 });
-const cropEnd = () => { cropUI.drag = null; scl.drag = null; $('#ed-loupe').hidden = true; };
+const cropEnd = () => { const was = cropUI.drag || scl.drag; cropUI.drag = null; scl.drag = null; $('#ed-loupe').hidden = true; if (was) renderCrop(); };
 cropLayer.addEventListener('pointerup', cropEnd);
 cropLayer.addEventListener('pointercancel', cropEnd);
 
@@ -2027,6 +2054,7 @@ function syncSettingsUI() {
   const s = project.settings;
   $$('.seg[data-set]').forEach(seg => seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === String(s[seg.dataset.set]))));
   $$('input[data-set]').forEach(i => { if (i.type === 'checkbox') i.checked = !!s[i.dataset.set]; else i.value = s[i.dataset.set]; });
+  if (typeof syncTempo === 'function' && $('#spf')) syncTempo();
   $$('output[data-out]').forEach(o => { o.textContent = OUT[o.dataset.out]?.(s[o.dataset.out]) ?? s[o.dataset.out]; });
   $$('[data-help]').forEach(p => { p.textContent = HELP[p.dataset.help]?.[s[p.dataset.help]] || ''; });
   $$('[data-if]').forEach(el => {
@@ -2064,6 +2092,26 @@ $$('input[data-set]').forEach(i => i.addEventListener('input', () => {
   project.settings[k] = i.type === 'checkbox' ? i.checked : Number(i.value);
   onSetting(k);
 }));
+
+// ---- Tempo als „Zeit pro Foto“ (intern: Fotos pro Sekunde = 1 / Zeit)
+function spfList() { return [0.02, 0.025, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.1, 0.12, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2]; }
+function fmtSec(v) { return String(+v.toFixed(3)).replace(".", ",") + " s"; }
+//  String(+v.toFixed(3)).replace('.', ',') + ' s';
+function syncTempo() {
+  const pps = project.settings.pps || 12, spf = 1 / pps;
+  const L = spfList(), i = L.reduce((bi, v, k) => (Math.abs(Math.log(v / spf)) < Math.abs(Math.log(L[bi] / spf)) ? k : bi), 0);
+  const r = $("#spf"); r.max = L.length - 1; r.value = i;
+  const ppsTxt = pps >= 1 ? String(+pps.toFixed(1)).replace('.', ',') : String(+pps.toFixed(2)).replace('.', ',');
+  $('#spf-out').textContent = `${fmtSec(spf)} · ${ppsTxt} Fotos/s`;
+  $$('#spf-chips button').forEach(b => b.classList.toggle('on', Math.abs(+b.dataset.s - spf) < 1e-6));
+}
+function setTempo(spf) {
+  project.settings.pps = 1 / spf;
+  syncTempo();
+  onSetting('pps');
+}
+$('#spf').addEventListener('input', e => setTempo(spfList()[+e.target.value]));
+$('#spf-chips').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setTempo(+b.dataset.s); });
 
 function updateDuration() {
   if (!project.included.length) return;
@@ -2487,4 +2535,4 @@ Promise.race([Promise.allSettled([startupCheck, capCheck]), new Promise(r => set
 
 // Für Tests/Fehlersuche
 $('#cap-diag').onclick = openDiag;
-window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner, refresh, capture, openDiag };
+window.__lapse = { project, ui, DEFAULT_SETTINGS, getAligner, refresh, capture, openDiag, cropRect: () => ({ ...cropUI.rect }) };
