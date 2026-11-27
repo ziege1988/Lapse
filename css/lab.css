@@ -175,3 +175,38 @@ body.scale-mode .crop-layer { cursor: crosshair; }
 .exp-scale .switch { min-height: 38px; margin: 2px 0; }
 .switch input:disabled { opacity: .35; }
 .switch:has(input:disabled) span { color: var(--muted); }
+
+/* Zuschnitt-Schritt: Inhalt nicht unter der Aktionsleiste verstecken */
+body.crop-mode { padding-bottom: calc(100px + var(--safe-b)) !important; }
+/* Grafik fängt keine Berührungen ab – sonst bricht iOS das Ziehen ab, wenn sie neu gezeichnet wird */
+.crop-layer svg, .ed-svg svg { pointer-events: none; }
+.crop-layer { cursor: pointer; }
+.crop-tap {
+  position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 2; pointer-events: none;
+  font: 600 10.5px/1 var(--mono); letter-spacing: .08em; color: var(--text); background: rgba(20, 21, 23, .78);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; white-space: nowrap;
+}
+#crop-edit { margin: 4px 0 10px; }
+
+/* Vollbild-Editor */
+.ed { position: fixed; inset: 0; z-index: 250; background: var(--bg); display: flex; flex-direction: column; padding-top: var(--safe-t); }
+.ed-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.ed-top b { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--data); }
+.ed-top .btn { min-width: 92px; min-height: 38px; }
+.ed-view { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; touch-action: none; }
+.ed-box { position: relative; touch-action: none; }
+.ed-box img { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; pointer-events: none; }
+.ed-svg { position: absolute; inset: 0; touch-action: none; }
+.ed-svg svg { width: 100%; height: 100%; display: block; }
+.ed-loupe {
+  position: fixed; width: 132px; height: 132px; border-radius: 50%; pointer-events: none; z-index: 5;
+  border: 2px solid var(--data); box-shadow: 0 6px 24px rgba(0, 0, 0, .6); background: #000;
+}
+.ed-tools { padding: 10px 14px calc(12px + var(--safe-b)); border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.ed-tools > div { display: grid; gap: 10px; }
+.ed-hint { margin: 0; font-size: 13.5px; color: var(--muted); }
+.ed-info { margin: 0; font: 12px var(--mono); color: var(--data); }
+body.ed-open { overflow: hidden; }
+/* Zuschnitt: Foto scrollt normal mit (Bearbeiten im Vollbild-Editor) */
+body.crop-mode .stage-wrap { position: static; }
+body.ed-open .toast { bottom: auto; top: calc(64px + var(--safe-t)); z-index: 260; }

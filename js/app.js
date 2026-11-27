@@ -665,6 +665,7 @@ function openCrop() {
 
 function closeCrop(apply, { silent = false } = {}) {
   if (!cropUI.on) return;
+  if (ed.open) closeEditor(false);
   if (scl.edit) { scl.edit = false; document.body.classList.remove('scale-mode'); }
   if (apply && cropUI.rect) {
     project.customCrop = cropUI.auto ? null : { ...cropUI.rect, key: cropUI.key };
@@ -700,18 +701,99 @@ function renderCrop() {
   const areaPath = area.length ? `M${area.map(p => p.join(' ')).join('L')}Z` : '';
   const hs = 0.035 * Math.max(rw, rh);
   const corners = [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
-  $('#crop-layer').innerHTML = `<svg viewBox="0 0 ${rw} ${rh}" preserveAspectRatio="none">
+  const svg = `<svg viewBox="0 0 ${rw} ${rh}" preserveAspectRatio="none">
     <path d="M0 0H${rw}V${rh}H0Z ${areaPath}" fill="rgba(0,0,0,.6)" fill-rule="evenodd"/>
     <path d="${areaPath} M${r.x} ${r.y}V${r.y + r.h}H${r.x + r.w}V${r.y}Z" fill="rgba(0,0,0,.35)" fill-rule="evenodd"/>
     <path d="${areaPath}" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="${0.004 * rw}" stroke-dasharray="${0.012 * rw} ${0.008 * rw}"/>
     <rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="#f3c08a" stroke-width="${0.006 * rw}"/>
     <path d="M${r.x + r.w / 3} ${r.y}V${r.y + r.h}M${r.x + 2 * r.w / 3} ${r.y}V${r.y + r.h}M${r.x} ${r.y + r.h / 3}H${r.x + r.w}M${r.x} ${r.y + 2 * r.h / 3}H${r.x + r.w}" stroke="rgba(255,255,255,.35)" stroke-width="${0.002 * rw}"/>
     ${corners.map(([x, y]) => `<rect x="${x - hs / 2}" y="${y - hs / 2}" width="${hs}" height="${hs}" rx="${hs / 4}" fill="#f3c08a" stroke="#000" stroke-width="${0.002 * rw}"/>`).join('')}
-  </svg>`;
-  $$('#crop-aspect button').forEach(b => b.classList.toggle('on', b.dataset.v === cropUI.key));
+  ${scaleSvg(rw)}</svg>`;
+  $('#crop-layer').innerHTML = svg + '<span class="crop-tap">✎ Antippen zum Bearbeiten</span>';
+  if (ed.open) $('#ed-svg').innerHTML = svg;
+  $$('#crop-aspect button, #ed-aspect button').forEach(b => b.classList.toggle('on', b.dataset.v === cropUI.key));
   updateCropState();
-  $('#crop-layer svg').insertAdjacentHTML('beforeend', scaleSvg(rw));
 }
+
+// ---- Vollbild-Editor für Zuschnitt und Maßstab
+const ed = { open: false, mode: 'crop', url: null, img: null, saved: null };
+
+function openEditor(mode) {
+  if (!cropUI.on) return;
+  ed.mode = mode;
+  ed.saved = { rect: { ...cropUI.rect }, key: cropUI.key, auto: cropUI.auto };
+  const ref = project.ref;
+  if (ed.url) URL.revokeObjectURL(ed.url);
+  ed.url = URL.createObjectURL(ref.previewBlob);
+  const img = $('#ed-img');
+  img.onload = () => { ed.img = img; edLayout(); };
+  img.src = ed.url;
+  ed.open = true;
+  $('#ed-done').disabled = false;
+  $('#ed').hidden = false;
+  document.body.classList.add('ed-open');
+  $('#ed-title').textContent = mode === 'scale' ? 'Maßstab kalibrieren' : 'Bildausschnitt';
+  $('#ed-crop').hidden = mode !== 'crop';
+  $('#ed-scale').hidden = mode !== 'scale';
+  $('#ed-hint').textContent = mode === 'scale'
+    ? 'Zwei Punkte mit bekanntem Abstand antippen – am besten gegenüberliegende Außenkanten der Schale. Zum Feinjustieren den Punkt mit dem Finger ziehen (Lupe).'
+    : 'Rahmen mit dem Finger verschieben oder an den Ecken ziehen. Der helle Bereich enthält in allen Fotos Bildinhalt.';
+  edLayout();
+  renderCrop(); updateScaleUI();
+}
+
+function closeEditor(apply) {
+  if (!ed.open) return;
+  if (ed.mode === 'scale') {
+    if (apply && !applyScale()) return;
+    scl.edit = false; scl.drag = null;
+  } else if (!apply && ed.saved) {
+    cropUI.rect = ed.saved.rect; cropUI.key = ed.saved.key; cropUI.auto = ed.saved.auto;
+  }
+  ed.open = false;
+  $('#ed').hidden = true;
+  $('#ed-loupe').hidden = true;
+  document.body.classList.remove('ed-open');
+  renderCrop(); updateScaleUI();
+}
+
+/** Bild im verfügbaren Platz einpassen (Seitenverhältnis des Bezugsfotos). */
+function edLayout() {
+  if (!ed.open) return;
+  const v = $('#ed-view'), ref = project.ref, a = ref.w / ref.h;
+  const W = v.clientWidth - 16, H = v.clientHeight - 16;
+  let w = W, h = w / a;
+  if (h > H) { h = H; w = h * a; }
+  Object.assign($('#ed-box').style, { width: Math.floor(w) + 'px', height: Math.floor(h) + 'px' });
+}
+window.addEventListener('resize', edLayout);
+
+/** Lupe über dem Finger: vergrößerter Ausschnitt mit Fadenkreuz am Punkt (x, y kanonisch). */
+function showLoupe(cx, cy, x, y) {
+  const img = ed.img, c = $('#ed-loupe');
+  if (!img || !img.naturalWidth) return;
+  const ctx = c.getContext('2d'), S = c.width, m = Math.max(img.naturalWidth, img.naturalHeight);
+  const box = $('#ed-box').getBoundingClientRect(), zoom = 3.5;
+  const srcPerCss = img.naturalWidth / box.width, half = S / 2 / zoom * srcPerCss / (S / 132);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, S, S);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, x * m - half, y * m - half, half * 2, half * 2, 0, 0, S, S);
+  ctx.strokeStyle = 'rgba(127,211,230,.95)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(S / 2, S * 0.2); ctx.lineTo(S / 2, S * 0.42); ctx.moveTo(S / 2, S * 0.58); ctx.lineTo(S / 2, S * 0.8);
+  ctx.moveTo(S * 0.2, S / 2); ctx.lineTo(S * 0.42, S / 2); ctx.moveTo(S * 0.58, S / 2); ctx.lineTo(S * 0.8, S / 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(S / 2, S / 2, 3, 0, Math.PI * 2); ctx.fillStyle = 'rgba(127,211,230,.95)'; ctx.fill();
+  // oberhalb des Fingers, am Rand nach unten ausweichen
+  const top = cy - 132 - 46 < 8 ? cy + 46 : cy - 132 - 46;
+  Object.assign(c.style, { left: Math.max(8, Math.min(innerWidth - 140, cx - 66)) + 'px', top: top + 'px' });
+  c.hidden = false;
+}
+
+$('#ed-cancel').onclick = () => closeEditor(false);
+$('#ed-done').onclick = () => closeEditor(true);
+$('#crop-layer').addEventListener('click', () => openEditor('crop'));
+$('#crop-edit').onclick = () => openEditor('crop');
+$('#ed-aspect').addEventListener('click', e => { const b = e.target.closest('button'); if (b) $(`#crop-aspect button[data-v="${b.dataset.v}"]`)?.click(); });
+$('#ed-auto').onclick = () => $('#crop-auto').click();
 
 // ---- Maßstab: Kalibrierung im Bezugsfoto, Balken im Video
 const scl = { edit: false, pts: [], mm: 90, drag: null };
@@ -756,9 +838,8 @@ function updateScaleUI() {
   $('#scale-pos').classList.toggle('dim', !barOn);
   $('#sb-on').checked = barOn; $('#ruler-on').checked = !!so.ruler;
   syncExportScale();
-  $('#scale-edit').hidden = !scl.edit;
-  $('#scale-cal').hidden = scl.edit;
   $('#scale-cal').textContent = k ? '📏 Neu kalibrieren' : '📏 Maßstab kalibrieren';
+  $('#scale-clear').hidden = !k;
   document.body.classList.toggle('scale-mode', scl.edit);
   if (scl.edit) {
     $$('#scale-chips button').forEach(b => b.classList.toggle('on', +b.dataset.mm === scl.mm));
@@ -769,7 +850,7 @@ function updateScaleUI() {
       const px = Math.hypot(scl.pts[1].x - scl.pts[0].x, scl.pts[1].y - scl.pts[0].y) * m;
       $('#scale-info').textContent = `Strecke ${Math.round(px)} px im Original → ${scl.mm > 0 ? (scl.mm / px * 1000).toFixed(1).replace('.', ',') + ' µm pro Pixel' : 'Abstand eingeben'}`;
     }
-    $('#scale-done').disabled = n < 2 || !(scl.mm > 0);
+    if (ed.open && ed.mode === 'scale') $('#ed-done').disabled = n < 2 || !(scl.mm > 0);
   }
 }
 
@@ -779,23 +860,27 @@ function setScaleEdit(on) {
     const cur = mmPerUnit(project) ? project.scale : null;
     scl.pts = cur ? [{ ...cur.p1 }, { ...cur.p2 }] : [];
     scl.mm = cur ? cur.mm : (scl.mm || 90);
-    toast('Tippe zwei Punkte mit bekanntem Abstand an (z. B. Außenkanten der Schale).', 4000);
+    openEditor('scale');
+    return;
   }
+  if (ed.open && ed.mode === 'scale') closeEditor(false);
   renderCrop(); updateScaleUI();
 }
 $('#scale-cal').onclick = () => setScaleEdit(true);
 $('#scale-chips').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; scl.mm = +b.dataset.mm; renderCrop(); updateScaleUI(); });
 $('#scale-mm').oninput = e => { scl.mm = parseFloat(String(e.target.value).replace(',', '.')) || 0; renderCrop(); updateScaleUI(); };
-$('#scale-done').onclick = () => {
-  if (scl.pts.length < 2 || !(scl.mm > 0)) return;
+/** Kalibrierung übernehmen (Fertig im Editor). Rückgabe false = noch unvollständig. */
+function applyScale() {
+  if (scl.pts.length < 2 || !(scl.mm > 0)) { toast(scl.pts.length < 2 ? 'Bitte zwei Punkte setzen.' : 'Bitte den Abstand in mm angeben.'); return false; }
   project.scale = { p1: scl.pts[0], p2: scl.pts[1], mm: scl.mm, refId: project.refId };
   if ((!project.settings.scaleBar || project.settings.scaleBar === 'off') && !project.settings.ruler) project.settings.scaleBar = project.settings.scalePos || 'bl';
   log(`Maßstab kalibriert: ${fmtLength(scl.mm)} · ${(mmPerUnit(project) / Math.max(project.ref.w, project.ref.h) * 1000).toFixed(2)} µm/px`, 'ok');
-  setScaleEdit(false);
   scheduleSave();
   toast('Maßstab übernommen – erscheint in Vorschau und Export.');
-};
+  return true;
+}
 $('#scale-clear').onclick = () => {
+  if (!confirm('Maßstab entfernen? Balken und Lineal werden ausgeblendet.')) return;
   project.scale = null; project.settings.scaleBar = 'off'; project.settings.ruler = false;
   setScaleEdit(false); scheduleSave();
 };
@@ -871,7 +956,7 @@ function setCropRect(cand) {
   cropUI.rect = { x: a.x + (cand.x - a.x) * lo, y: a.y + (cand.y - a.y) * lo, w: a.w + (cand.w - a.w) * lo, h: a.h + (cand.h - a.h) * lo };
 }
 
-const cropLayer = $('#crop-layer');
+const cropLayer = $('#ed-svg');   // Ziehen/Antippen nur im Vollbild-Editor (groß, ohne Scrollen)
 cropLayer.addEventListener('pointerdown', e => {
   if (!cropUI.on) return;
   const ref = project.ref, m = Math.max(ref.w, ref.h), rect = cropLayer.getBoundingClientRect();
@@ -887,6 +972,7 @@ cropLayer.addEventListener('pointerdown', e => {
     scl.drag = { k, sx, rect };
     cropLayer.setPointerCapture(e.pointerId);
     renderCrop(); updateScaleUI();
+    showLoupe(e.clientX, e.clientY, scl.pts[k].x, scl.pts[k].y);
     return;
   }
   const corners = [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
@@ -900,8 +986,11 @@ cropLayer.addEventListener('pointerdown', e => {
 cropLayer.addEventListener('pointermove', e => {
   if (scl.drag) {
     const d = scl.drag;
-    scl.pts[d.k] = { x: (e.clientX - d.rect.left) / d.sx, y: (e.clientY - d.rect.top) / d.sx };
+    const ref = project.ref, m = Math.max(ref.w, ref.h);
+    const x = Math.max(0, Math.min(ref.w / m, (e.clientX - d.rect.left) / d.sx)), y = Math.max(0, Math.min(ref.h / m, (e.clientY - d.rect.top) / d.sx));
+    scl.pts[d.k] = { x, y };
     renderCrop(); updateScaleUI();
+    showLoupe(e.clientX, e.clientY, x, y);
     return;
   }
   const d = cropUI.drag;
@@ -919,10 +1008,12 @@ cropLayer.addEventListener('pointermove', e => {
     const ratio = CROP_ASPECTS[cropUI.key];
     if (ratio) { if (w / h > ratio) h = w / ratio; else w = h * ratio; }
     setCropRect({ x: x < fx ? fx - w : fx, y: y < fy ? fy - h : fy, w, h });
+    const c = cropUI.rect;
+    showLoupe(e.clientX, e.clientY, d.corner % 2 ? c.x + c.w : c.x, d.corner < 2 ? c.y : c.y + c.h);
   }
   renderCrop();
 });
-const cropEnd = () => { cropUI.drag = null; scl.drag = null; };
+const cropEnd = () => { cropUI.drag = null; scl.drag = null; $('#ed-loupe').hidden = true; };
 cropLayer.addEventListener('pointerup', cropEnd);
 cropLayer.addEventListener('pointercancel', cropEnd);
 
