@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS = {
   pingpong: false,
   holdStart: 0,
   holdEnd: 0.5,
+  scaleBar: 'off',          // Maßstab im Video: off | bl (unten links) | br (unten rechts)
 };
 
 export const ASPECTS = { '16:9': 16 / 9, '9:16': 9 / 16, '4:3': 4 / 3, '3:4': 3 / 4, '3:2': 3 / 2, '1:1': 1 };
@@ -40,6 +41,7 @@ export class Project {
     this.anchors = [];          // Ankerpunkte im Referenzbild (kanonisch): [{x, y, uniq}]
     this.anchorsActive = false; // Ausrichtung kommt aus den Ankerpunkten
     this.customCrop = null;     // eigener Bildausschnitt {x, y, w, h, key} im Bezugsfoto (kanonisch)
+    this.scale = null;          // Maßstab: {p1, p2, mm, refId} – zwei Punkte im Bezugsfoto mit bekanntem Abstand
   }
 
   get included() { return this.frames.filter(f => !f.excluded); }

@@ -18,7 +18,7 @@ uniform mat3 u_m0, u_m1;
 uniform vec3 u_gain0, u_off0, u_mul0, u_gain1, u_off1, u_mul1;
 uniform vec3 u_global; // Belichtung (Faktor), Kontrast, Sättigung
 uniform float u_weight;
-uniform int u_mode;    // 0 = normal, 1 = Differenz zu Bild 1
+uniform int u_mode;    // 0 = normal, 1 = Differenz zu Bild 1, 2 = Einblendung (RGBA unverändert)
 vec3 toLin(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); }
 vec3 toSrgb(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
 vec4 fetch(sampler2D t, mat3 m, vec3 gain, vec3 off, vec3 mul) {
@@ -35,6 +35,7 @@ vec4 fetch(sampler2D t, mat3 m, vec3 gain, vec3 off, vec3 mul) {
   return vec4(clamp(c, 0.0, 1.0), 1.0);
 }
 void main() {
+  if (u_mode == 2) { gl_FragColor = texture2D(u_tex0, v_pos); return; }
   vec4 a = fetch(u_tex0, u_m0, u_gain0, u_off0, u_mul0);
   if (u_mode == 1) {
     vec4 b = fetch(u_tex1, u_m1, u_gain1, u_off1, u_mul1);
@@ -115,6 +116,29 @@ export class Renderer {
     this.textures.set(key, { tex, w, h, used: performance.now() });
   }
 
+  /** Einblendung (z. B. Maßstab) setzen; source = Canvas in Ausgabegröße oder null. */
+  setOverlay(source) {
+    const gl = this.gl;
+    if (!source) { if (this.ov) { gl.deleteTexture(this.ov); this.ov = null; } return; }
+    this.ov ||= gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.ov);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    for (const [k, v] of [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+  }
+
+  _drawOverlay() {
+    const gl = this.gl;
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform1i(this.loc.u_mode, 2);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.ov);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.uniform1i(this.loc.u_mode, 0);
+    gl.disable(gl.BLEND);
+  }
+
   drop(key) {
     const t = this.textures.get(key);
     if (t) { this.gl.deleteTexture(t.tex); this.textures.delete(key); }
@@ -152,7 +176,7 @@ export class Renderer {
    * Zeichnet Ebenen [{key, M, gain, off, mul, weight}] (Gewichte summieren zu 1).
    * opts: { global:[exp,contrast,sat], mode:'normal'|'difference', target: {w,h} für Offscreen }
    */
-  draw(layers, { global = [1, 1, 1], mode = 'normal', target = null } = {}) {
+  draw(layers, { global = [1, 1, 1], mode = 'normal', target = null, overlay = false } = {}) {
     const gl = this.gl;
     if (this.lost) return false;
     let w = this.canvas.width, h = this.canvas.height;
@@ -182,6 +206,7 @@ export class Renderer {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     });
     gl.disable(gl.BLEND);
+    if (overlay && this.ov) this._drawOverlay();
     return true;
   }
 
@@ -214,6 +239,7 @@ export class Renderer {
 
   destroy() {
     this.clear();
+    this.setOverlay(null);
     const ext = this.gl.getExtension('WEBGL_lose_context');
     ext?.loseContext();
   }

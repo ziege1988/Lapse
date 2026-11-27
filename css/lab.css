@@ -153,3 +153,19 @@ body.anchor-mode .series { display: none; }
 .modal { grid-template-columns: minmax(0, 1fr); justify-items: center; }
 .modal-box { min-width: 0; max-width: 100%; }
 .diag-log, .proc-log { max-width: 100%; min-width: 0; }
+
+/* Maßstab */
+.scale-box { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.scale-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.scale-head .sec { font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: #7c8792; }
+.scale-state { font: 12px var(--mono); color: var(--data); }
+.scale-state.off { color: var(--muted); }
+.scale-mm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.scale-mm .chips { margin: 0; }
+.scale-mm .chips button { min-width: 44px; }
+.scale-input { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.scale-input input { width: 74px; height: 36px; border: 0; background: transparent; text-align: right; font: 600 15px var(--mono); color: var(--data); padding: 0 4px; }
+.scale-input span { padding: 0 10px 0 4px; font: 12px var(--mono); color: var(--muted); }
+#scale-edit { display: grid; gap: 10px; }
+#scale-edit .help { margin: 0; }
+body.scale-mode .crop-layer { cursor: crosshair; }

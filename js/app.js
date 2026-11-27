@@ -9,6 +9,7 @@ import { BUILD, BUILD_DATE, isDev } from './version.js';
 import { ProjectStore } from './store.js';
 import { Capture } from './capture.js';
 import { Hero } from './hero.js';
+import { mmPerUnit, niceLength, fmtLength } from './overlay.js';
 import { log, onLog, installHooks, buildReport, counts, stamp } from './diag.js';
 
 installHooks();
@@ -657,12 +658,14 @@ function openCrop() {
   player.showRaw(project.ref);
   layoutStage();
   renderCrop();
+  updateScaleUI();
   updatePrimary();
   window.scrollTo({ top: 0 });
 }
 
 function closeCrop(apply, { silent = false } = {}) {
   if (!cropUI.on) return;
+  if (scl.edit) { scl.edit = false; document.body.classList.remove('scale-mode'); }
   if (apply && cropUI.rect) {
     project.customCrop = cropUI.auto ? null : { ...cropUI.rect, key: cropUI.key };
     if (!silent) toast(cropUI.auto ? 'Automatischer Ausschnitt.' : 'Eigener Bildausschnitt übernommen.');
@@ -707,7 +710,94 @@ function renderCrop() {
   </svg>`;
   $$('#crop-aspect button').forEach(b => b.classList.toggle('on', b.dataset.v === cropUI.key));
   updateCropState();
+  $('#crop-layer svg').insertAdjacentHTML('beforeend', scaleSvg(rw));
 }
+
+// ---- Maßstab: Kalibrierung im Bezugsfoto, Balken im Video
+const scl = { edit: false, pts: [], mm: 90, drag: null };
+
+/** SVG-Elemente: Messstrecke (beim Kalibrieren) und Vorschau des Balkens im gewählten Ausschnitt. */
+function scaleSvg(rw) {
+  let out = '';
+  const lw = 0.004 * rw, rr = 0.014 * rw, fs = 0.032 * rw;
+  const pts = scl.edit ? scl.pts : project.scale && mmPerUnit(project) ? [project.scale.p1, project.scale.p2] : [];
+  if (pts.length) {
+    const col = scl.edit ? '#7fd3e6' : 'rgba(127,211,230,.55)';
+    if (pts.length === 2) {
+      const [a, b] = pts, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      out += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${col}" stroke-width="${lw}" stroke-dasharray="${lw * 3} ${lw * 2}"/>`;
+      const mm = scl.edit ? scl.mm : project.scale.mm;
+      if (mm > 0) out += `<text x="${mx}" y="${my - fs * 0.6}" fill="#fff" stroke="#000" stroke-width="${lw * 0.8}" paint-order="stroke" font-size="${fs}" font-family="ui-monospace,Menlo,monospace" text-anchor="middle">${fmtLength(mm)}</text>`;
+    }
+    for (const p of pts) out += `<circle cx="${p.x}" cy="${p.y}" r="${rr}" fill="rgba(127,211,230,.18)" stroke="${col}" stroke-width="${lw}"/><circle cx="${p.x}" cy="${p.y}" r="${lw}" fill="${col}"/>`;
+  }
+  // Balken-Vorschau im Rahmen (wie im Video)
+  const k = scl.edit && scl.pts.length === 2 && scl.mm > 0 ? scl.mm / Math.hypot(scl.pts[1].x - scl.pts[0].x, scl.pts[1].y - scl.pts[0].y) : mmPerUnit(project);
+  const pos = project.settings.scaleBar, r = cropUI.rect;
+  if (k && r && pos && pos !== 'off') {
+    const L = niceLength(r.w * 0.2 * k), len = L / k, u = Math.min(r.w, r.h) / 100;
+    const x0 = pos === 'br' ? r.x + r.w - 4.5 * u - len : r.x + 4.5 * u, y = r.y + r.h - 4.5 * u;
+    out += `<g fill="#fff"><rect x="${x0}" y="${y - 0.8 * u}" width="${len}" height="${0.8 * u}"/><rect x="${x0}" y="${y - 2.6 * u}" width="${0.6 * u}" height="${2.6 * u}"/><rect x="${x0 + len - 0.6 * u}" y="${y - 2.6 * u}" width="${0.6 * u}" height="${2.6 * u}"/>
+      <text x="${pos === 'br' ? x0 + len : x0}" y="${y - 3.4 * u}" font-size="${3.3 * u}" font-family="ui-monospace,Menlo,monospace" text-anchor="${pos === 'br' ? 'end' : 'start'}">${fmtLength(L)}</text></g>`;
+  }
+  return out;
+}
+
+function updateScaleUI() {
+  const k = mmPerUnit(project), ref = project.ref, m = ref ? Math.max(ref.w, ref.h) : 1;
+  const st = $('#scale-state');
+  st.classList.toggle('off', !k);
+  st.textContent = k ? `kalibriert · ${fmtLength(project.scale.mm)} · ${(k / m * 1000).toFixed(1).replace('.', ',')} µm/px` : 'nicht kalibriert';
+  $$('#scale-pos button').forEach(b => b.classList.toggle('on', b.dataset.v === (project.settings.scaleBar || 'off')));
+  $('#scale-edit').hidden = !scl.edit;
+  $('#scale-cal').hidden = scl.edit;
+  $('#scale-cal').textContent = k ? '📏 Neu kalibrieren' : '📏 Maßstab kalibrieren';
+  document.body.classList.toggle('scale-mode', scl.edit);
+  if (scl.edit) {
+    $$('#scale-chips button').forEach(b => b.classList.toggle('on', +b.dataset.mm === scl.mm));
+    if (document.activeElement !== $('#scale-mm')) $('#scale-mm').value = scl.mm || '';
+    const n = scl.pts.length;
+    if (n < 2) $('#scale-info').textContent = n ? 'Jetzt den zweiten Punkt antippen.' : 'Ersten Punkt im Foto antippen.';
+    else {
+      const px = Math.hypot(scl.pts[1].x - scl.pts[0].x, scl.pts[1].y - scl.pts[0].y) * m;
+      $('#scale-info').textContent = `Strecke ${Math.round(px)} px im Original → ${scl.mm > 0 ? (scl.mm / px * 1000).toFixed(1).replace('.', ',') + ' µm pro Pixel' : 'Abstand eingeben'}`;
+    }
+    $('#scale-done').disabled = n < 2 || !(scl.mm > 0);
+  }
+}
+
+function setScaleEdit(on) {
+  scl.edit = on; scl.drag = null;
+  if (on) {
+    const cur = mmPerUnit(project) ? project.scale : null;
+    scl.pts = cur ? [{ ...cur.p1 }, { ...cur.p2 }] : [];
+    scl.mm = cur ? cur.mm : (scl.mm || 90);
+    toast('Tippe zwei Punkte mit bekanntem Abstand an (z. B. Außenkanten der Schale).', 4000);
+  }
+  renderCrop(); updateScaleUI();
+}
+$('#scale-cal').onclick = () => setScaleEdit(true);
+$('#scale-chips').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; scl.mm = +b.dataset.mm; renderCrop(); updateScaleUI(); });
+$('#scale-mm').oninput = e => { scl.mm = parseFloat(String(e.target.value).replace(',', '.')) || 0; renderCrop(); updateScaleUI(); };
+$('#scale-done').onclick = () => {
+  if (scl.pts.length < 2 || !(scl.mm > 0)) return;
+  project.scale = { p1: scl.pts[0], p2: scl.pts[1], mm: scl.mm, refId: project.refId };
+  if (!project.settings.scaleBar || project.settings.scaleBar === 'off') project.settings.scaleBar = 'bl';
+  log(`Maßstab kalibriert: ${fmtLength(scl.mm)} · ${(mmPerUnit(project) / Math.max(project.ref.w, project.ref.h) * 1000).toFixed(2)} µm/px`, 'ok');
+  setScaleEdit(false);
+  scheduleSave();
+  toast('Maßstab übernommen – erscheint in Vorschau und Export.');
+};
+$('#scale-clear').onclick = () => {
+  project.scale = null; project.settings.scaleBar = 'off';
+  setScaleEdit(false); scheduleSave();
+};
+$('#scale-pos').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  project.settings.scaleBar = b.dataset.v;
+  if (b.dataset.v !== 'off' && !mmPerUnit(project)) setScaleEdit(true);
+  renderCrop(); updateScaleUI(); scheduleSave();
+});
 
 /** Schnittmenge konvexer Polygone (Sutherland-Hodgman). */
 function intersectAll(quads, start) {
@@ -752,6 +842,18 @@ cropLayer.addEventListener('pointerdown', e => {
   const ref = project.ref, m = Math.max(ref.w, ref.h), rect = cropLayer.getBoundingClientRect();
   const sx = rect.width / (ref.w / m);   // Bildschirmpunkte je kanonische Einheit
   const x = (e.clientX - rect.left) / sx, y = (e.clientY - rect.top) / sx, r = cropUI.rect;
+  if (scl.edit) {
+    // Maßstab: Punkt setzen, nächstgelegenen Punkt greifen oder (bei 2 Punkten) den näheren versetzen
+    let k = scl.pts.findIndex(p => Math.hypot(p.x - x, p.y - y) < 34 / sx);
+    if (k < 0) {
+      if (scl.pts.length < 2) { scl.pts.push({ x, y }); k = scl.pts.length - 1; }
+      else { k = Math.hypot(scl.pts[0].x - x, scl.pts[0].y - y) < Math.hypot(scl.pts[1].x - x, scl.pts[1].y - y) ? 0 : 1; scl.pts[k] = { x, y }; }
+    }
+    scl.drag = { k, sx, rect };
+    cropLayer.setPointerCapture(e.pointerId);
+    renderCrop(); updateScaleUI();
+    return;
+  }
   const corners = [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
   let corner = -1, best = 30 / sx;
   corners.forEach(([cx, cy], k) => { const d = Math.hypot(cx - x, cy - y); if (d < best) { best = d; corner = k; } });
@@ -761,6 +863,12 @@ cropLayer.addEventListener('pointerdown', e => {
   cropLayer.setPointerCapture(e.pointerId);
 });
 cropLayer.addEventListener('pointermove', e => {
+  if (scl.drag) {
+    const d = scl.drag;
+    scl.pts[d.k] = { x: (e.clientX - d.rect.left) / d.sx, y: (e.clientY - d.rect.top) / d.sx };
+    renderCrop(); updateScaleUI();
+    return;
+  }
   const d = cropUI.drag;
   if (!d) return;
   const x = (e.clientX - d.rect.left) / d.sx, y = (e.clientY - d.rect.top) / d.sx, r0 = d.r0;
@@ -779,7 +887,7 @@ cropLayer.addEventListener('pointermove', e => {
   }
   renderCrop();
 });
-const cropEnd = () => { cropUI.drag = null; };
+const cropEnd = () => { cropUI.drag = null; scl.drag = null; };
 cropLayer.addEventListener('pointerup', cropEnd);
 cropLayer.addEventListener('pointercancel', cropEnd);
 
@@ -2155,6 +2263,7 @@ async function resumeProject() {
     project.anchors = data.meta.anchors || [];
     project.anchorsActive = !!data.meta.anchorsActive;
     project.customCrop = data.meta.customCrop || null;
+    project.scale = data.meta.scale || null;
     project.aligned = !!data.meta.aligned && project.frames.some(f => f.id === project.refId);
     syncSettingsUI();
     renderGrid();

@@ -267,6 +267,27 @@
           <button class="btn" id="crop-auto">Automatisch (größtmöglich)</button>
           <button class="btn ghost" id="crop-cancel">Änderungen verwerfen</button>
         </div>
+
+        <div class="scale-box" id="scale-box">
+          <div class="scale-head">
+            <span class="sec">Maßstab</span>
+            <span class="scale-state" id="scale-state">nicht kalibriert</span>
+          </div>
+          <div class="seg" id="scale-pos"><button data-v="off">Aus</button><button data-v="bl">Unten links</button><button data-v="br">Unten rechts</button></div>
+          <button class="btn wide" id="scale-cal">📏 Maßstab kalibrieren</button>
+          <div id="scale-edit" hidden>
+            <p class="help"><b>1.</b> Tippe im Foto auf zwei Punkte mit bekanntem Abstand – am besten gegenüberliegende <b>Außenkanten</b> der Schale. Punkte lassen sich verschieben.<br><b>2.</b> Echten Abstand wählen oder eingeben.</p>
+            <div class="scale-mm">
+              <div class="chips" id="scale-chips"><button data-mm="35">35</button><button data-mm="60">60</button><button data-mm="90">90</button><button data-mm="100">100</button><button data-mm="150">150</button></div>
+              <label class="scale-input"><input type="number" id="scale-mm" inputmode="decimal" min="0.01" step="0.1" aria-label="Abstand in Millimeter"><span>mm</span></label>
+            </div>
+            <p class="help small" id="scale-info"></p>
+            <div class="btn-row">
+              <button class="btn primary" id="scale-done">Maßstab übernehmen</button>
+              <button class="btn ghost" id="scale-clear">Entfernen</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="tabs" role="tablist">

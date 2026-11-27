@@ -39,6 +39,14 @@ Wichtig auf dem iPhone (Grenzen von Safari, nicht von Lapse):
 - **Fotomediathek:** Webseiten dürfen nicht selbstständig in „Fotos“ speichern. „In Fotos sichern“ öffnet das Teilen-Menü → „Bilder sichern“ (bei vielen Fotos in Teilen à 20).
 - **Auflösung:** Das Kamerabild im Browser ist ein Videobild. Lapse fordert die höchste Auflösung an; was das Gerät liefert, steht oben links (RES).
 
+### Maßstab
+
+Im Schritt **Zuschnitt** unter „Maßstab“: „Maßstab kalibrieren“, im Bezugsfoto zwei Punkte mit bekanntem Abstand antippen (am besten gegenüberliegende Außenkanten der Schale; Punkte lassen sich verschieben) und den echten Abstand wählen (35/60/90/100/150 mm) oder eingeben. Lapse zeigt die Auflösung (µm pro Pixel) und blendet einen runden Maßstabsbalken (z. B. „20 mm“) unten links oder rechts ein – identisch in Vorschau, MP4/WebM, GIF und Einzelbildern. Da alle Fotos in die Lage des Bezugsfotos gebracht werden, gilt die Kalibrierung für die ganze Serie. Genauigkeit: abhängig davon, wie exakt die Punkte sitzen; bei 90 mm über ~1500 px entspricht ein Tippfehler von 5 px etwa 0,3 mm (0,3 %).
+
+### Diagnose
+
+„DIAG“ oben (auch im Rechenprotokoll und in der Aufnahme) erstellt einen Bericht mit Gerät, Funktionen, Projekt, Werten je Foto, Fehlern und Rechenprotokoll – zum Kopieren und Weitergeben. Keine Bilder.
+
 ### Ausrichtung
 | Einstellung | Wirkung |
 |---|---|
@@ -127,6 +135,10 @@ index.html            Oberfläche
 css/app.css           Gestaltung (mobil zuerst, Safe-Area für iPhone)
 js/app.js             Steuerung der Oberfläche
 js/capture.js         Zeitraffer-Aufnahme (Kamera, Messwerte, Testfoto, Timer)
+js/overlay.js         Einblendungen im Video (Maßstab)
+js/diag.js            Rechenprotokoll und Diagnosebericht
+js/hero.js            Startbild (Schleimpilz-Modell)
+css/lab.css, hero.css Labor-Optik und Startseite
 css/capture.css       Gestaltung der Aufnahme-Ansicht
 js/project.js         Projektmodell: Transformationen, Zuschnitt, Farbangleich, Zeitplan, Qualität
 js/pipeline.js        Import, Analyse, Ausrichtung, Messung, präzise Nachberechnung
