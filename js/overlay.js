@@ -52,8 +52,9 @@ export function insetSpec(project, W, H, crop = project.crop) {
   w = Math.round(w); h = Math.round(h);
   const pos = st.insetPos || 'tr';
   const x = pos.endsWith('l') ? m : W - m - w, y = pos.startsWith('t') ? m : H - m - h;
-  // Vergrößerung gegenüber der Darstellung im Hauptbild: automatisch aus der Region
-  // oder fest eingestellt (insetZoom) – dann wird die gezeigte Region um ihre Mitte angepasst
+  // Vergrößerung gegenüber dem Hauptbild: automatisch (Region füllt das Fenster) oder fest (insetZoom).
+  // Der Rahmen im Hauptbild bleibt immer die gewählte Region; nur der Bildinhalt im Fenster zoomt
+  // (um die Mitte der Region).
   let shown = roi, zoom = w / (roi.w / crop.w * W);
   if (st.insetZoom > 0) {
     zoom = st.insetZoom;
@@ -64,7 +65,7 @@ export function insetSpec(project, W, H, crop = project.crop) {
     shown = { x: Math.min(Math.max(cx - rw / 2, crop.x), crop.x + crop.w - rw), y: Math.min(Math.max(cy - rh / 2, crop.y), crop.y + crop.h - rh), w: rw, h: rh };
     zoom = w / (rw / crop.w * W);
   }
-  return { roi: shown, rect: { x, y, w, h }, zoom };
+  return { roi: shown, frame: roi, rect: { x, y, w, h }, zoom };
 }
 
 /** Tatsächlich gezeigte Region und Vergrößerung (für die Bedienung, Bezug Full-HD). */
@@ -118,7 +119,7 @@ export function makeOverlay(project, W, H, crop = project.crop) {
 
 /** Dezenter weißer Kasten um die Region im Hauptbild und um die vergrößerte Darstellung, dazu der Faktor. */
 function drawInsetFrames(ctx, ins, crop, W, H, u) {
-  const R = toPx(ins.roi, crop, W, H), I = ins.rect;
+  const R = toPx(ins.frame, crop, W, H), I = ins.rect;
   ctx.save();
   const box = (x, y, w, h, lw) => {
     ctx.lineWidth = lw + Math.max(1, 0.25 * u); ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.strokeRect(x, y, w, h);

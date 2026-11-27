@@ -740,8 +740,8 @@ function openEditor(mode) {
   $('#ed-scale').hidden = mode !== 'scale';
   $('#ed-roi').hidden = mode !== 'roi';
   if (mode === 'roi') {
-    const c = cropUI.rect, r = project.settings.roi, eff = r && project.settings.roiOn ? effectiveRoi(project, c) : null;
-    ed.roi = eff ? { ...eff.roi } : r ? { ...r } : { x: c.x + c.w * 0.35, y: c.y + c.h * 0.35, w: c.w * 0.3, h: c.h * 0.3 };
+    const c = cropUI.rect, r = project.settings.roi;
+    ed.roi = r ? { ...r } : { x: c.x + c.w * 0.35, y: c.y + c.h * 0.35, w: c.w * 0.3, h: c.h * 0.3 };
     setRoiRect(ed.roi);
   }
   $('#ed-hint').textContent = mode === 'scale'
@@ -760,7 +760,7 @@ function closeEditor(apply) {
     scl.edit = false; scl.drag = null;
   } else if (ed.mode === 'roi') {
     if (apply) {
-      project.settings.roi = { ...ed.roi }; project.settings.roiOn = true; project.settings.insetZoom = 0; // Vergrößerung passt sich der neuen Region an
+      project.settings.roi = { ...ed.roi }; project.settings.roiOn = true;
       log(`Region of Interest gesetzt: ${['x', 'y', 'w', 'h'].map(k => ed.roi[k].toFixed(3)).join(' ')}`, 'ok');
       scheduleSave(); player?.render();
     }
@@ -846,7 +846,7 @@ function roiSvg(rw, rh) {
 
 /** Auf der Seite: gewählte Region dezent zeigen (wenn eingeschaltet). */
 function pageRoiSvg(rw) {
-  const st = project.settings, eff = st.roiOn && st.roi ? effectiveRoi(project, cropUI.rect) : null, r = eff?.roi;
+  const st = project.settings, eff = st.roiOn && st.roi ? effectiveRoi(project, cropUI.rect) : null, r = eff?.frame;
   if (!r || (ed.open && ed.mode === 'roi')) return '';
   return `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="${0.004 * rw}"/>`;
 }
@@ -861,7 +861,7 @@ function updateRoiUI() {
   const k = mmPerUnit(project), eff = st.roiOn && has ? effectiveRoi(project, cropUI.on ? cropUI.rect : project.crop) : null;
   const zf = z => String(+z.toFixed(1)).replace('.', ',') + '×';
   $('#roi-state').classList.toggle('off', !eff);
-  $('#roi-state').textContent = eff ? (k ? `${fmtLength(eff.roi.w * k)} × ${fmtLength(eff.roi.h * k)} · ` : '') + zf(eff.zoom) : 'aus';
+  $('#roi-state').textContent = eff ? (k ? `${fmtLength(eff.frame.w * k)} × ${fmtLength(eff.frame.h * k)} · ` : '') + zf(eff.zoom) : 'aus';
   $('.roi-zoom').classList.toggle('dim', !eff);
   const Z = zoomList(), r = $('#roi-zoom'), cur = eff ? eff.zoom : 2;
   r.max = Z.length - 1;

@@ -45,7 +45,7 @@ Im Schritt **Zuschnitt** unter „Maßstab“: „Maßstab kalibrieren“ öffne
 
 ### Region of Interest
 
-Im Schritt **Zuschnitt** unter „Region of Interest“: „Region wählen“ öffnet den Vollbild-Editor; dort eine Region aufziehen (verschieben, Ecken/Kanten ziehen). Im Video wird die Region dezent weiß umrahmt und zusätzlich vergrößert in einer wählbaren Ecke gezeigt (Größe S/M/L). Die Vergrößerung ist einstellbar (Auto oder 1–8×; mehr Vergrößerung zeigt einen kleineren Bereich um dieselbe Mitte, der Rahmen passt sich an) und wird im Video angezeigt – live mit dem Zeitraffer, identisch in Vorschau und Export. Ein-/ausschaltbar; „▶ Video abspielen“ im Zuschnitt zeigt das Ergebnis sofort.
+Im Schritt **Zuschnitt** unter „Region of Interest“: „Region wählen“ öffnet den Vollbild-Editor; dort eine Region aufziehen (verschieben, Ecken/Kanten ziehen). Im Video wird die Region dezent weiß umrahmt und zusätzlich vergrößert in einer wählbaren Ecke gezeigt (Größe S/M/L). Die Vergrößerung ist einstellbar (Auto oder 1–8×): Der Rahmen im Video bleibt die gewählte Region, nur das Bild im Fenster zoomt um die Mitte der Region und wird im Video angezeigt – live mit dem Zeitraffer, identisch in Vorschau und Export. Ein-/ausschaltbar; „▶ Video abspielen“ im Zuschnitt zeigt das Ergebnis sofort.
 
 ### Diagnose
 
