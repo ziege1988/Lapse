@@ -87,51 +87,41 @@ function drawBar(ctx, W, H, u, mmPerPx, pos) {
 }
 
 /**
- * Lineal („Zollstock“): leicht transparentes Band mittig über die ganze Bildbreite, Nullpunkt links.
- * Teilung passt sich an: Hauptstriche mit Zahl, Zwischen- und Feinstriche, sofern sie noch erkennbar sind.
+ * Lineal: eine Grundlinie quer durch die Bildmitte, Striche stehen nach oben –
+ * lang für cm, mittel für 0,5 cm, kurz für mm. Keine Zahlen. Nullpunkt links.
+ * Bei sehr starker oder schwacher Vergrößerung verschiebt sich die Teilung um Zehnerstufen
+ * (z. B. 1 mm / 0,5 mm / 0,1 mm), damit die Striche erkennbar bleiben.
  */
 function drawRuler(ctx, W, H, u, mmPerPx) {
   const pxPerMm = 1 / mmPerPx;
-  // Hauptteilung: runde Länge mit mindestens ~9u Abstand zwischen den Zahlen
-  let major = NICE.find(v => v * pxPerMm >= 9 * u) || NICE[NICE.length - 1];
-  const sub = [10, 5, 2].find(n => major / n * pxPerMm >= 0.9 * u) || 1;   // Feinstriche
-  const minor = major / sub, half = sub % 2 === 0 ? sub / 2 : 0;
-  const cm = major >= 10 && major % 10 === 0;          // Zahlen in cm (wie beim Zollstock)
-  const bandH = Math.max(14, 7.5 * u), y0 = H / 2 - bandH / 2, x0 = Math.max(2, 1.5 * u);
-  ctx.save();
-  // Band
-  ctx.fillStyle = 'rgba(243,192,138,.20)';
-  ctx.fillRect(0, y0, W, bandH);
-  ctx.fillStyle = 'rgba(20,21,23,.18)';
-  ctx.fillRect(0, y0, W, bandH);
-  ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = Math.max(1, 0.18 * u);
-  ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0); ctx.moveTo(0, y0 + bandH); ctx.lineTo(W, y0 + bandH); ctx.stroke();
-  // Striche (oben und unten wie beim Zollstock)
-  ctx.strokeStyle = 'rgba(255,255,255,.9)';
-  ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = Math.max(1, 0.35 * u);
-  const n = Math.ceil((W - x0) / (minor * pxPerMm));
-  ctx.beginPath();
+  let unit = 10;                                        // Hauptteilung in mm (Standard: 1 cm)
+  while (unit / 10 * pxPerMm < 3 && unit < 1e5) unit *= 10;   // feinste Striche mind. ~3 px auseinander
+  while (unit * pxPerMm > W * 0.6 && unit > 1e-3) unit /= 10; // mind. ~2 Hauptstriche im Bild
+  const fine = unit / 10, step = fine * pxPerMm;
+  const showFine = step >= 3, showHalf = step * 5 >= 3;
+  const y = Math.round(H / 2) + 0.5, x0 = Math.max(1, 1.2 * u);
+  const Lc = Math.max(8, 4.2 * u), Lh = Lc * 0.62, Lm = Lc * 0.34;
+  // Strichliste: [x1, y1, x2, y2, Breite]
+  const segs = [[0, y, W, y, Math.max(1, 0.2 * u)]];
+  const n = Math.floor((W - x0) / step);
   for (let i = 0; i <= n; i++) {
-    const x = Math.round(x0 + i * minor * pxPerMm) + 0.5;
-    const isMajor = i % sub === 0, isHalf = half && i % half === 0;
-    const len = isMajor ? 0.42 * bandH : isHalf ? 0.28 * bandH : 0.17 * bandH;
-    ctx.moveTo(x, y0); ctx.lineTo(x, y0 + len);
-    ctx.moveTo(x, y0 + bandH); ctx.lineTo(x, y0 + bandH - len * (isMajor ? 0.55 : 0.75));
+    const cm = i % 10 === 0, half = i % 10 === 5;
+    if (!cm && !half && !showFine) continue;
+    if (half && !showHalf) continue;
+    const x = Math.round(x0 + i * step) + 0.5;
+    segs.push([x, y, x, y - (cm ? Lc : half ? Lh : Lm), Math.max(1, (cm ? 0.2 : half ? 0.16 : 0.12) * u)]);
   }
-  ctx.lineWidth = Math.max(1, 0.16 * u);
-  ctx.stroke();
-  // Zahlen
-  const fs = Math.max(9, 2.5 * u);
-  ctx.font = `600 ${fs}px ${FONT}`;
-  ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-  const ty = y0 + bandH * 0.66;
-  const de = v => String(+v.toFixed(2)).replace('.', ',');
-  for (let i = 0; i * sub <= n; i++) {
-    const x = x0 + i * major * pxPerMm, v = i * major;
-    if (x > W - fs) break;
-    const label = i === 0 ? (cm ? 'cm' : major >= 1 ? 'mm' : 'µm') : cm ? de(v / 10) : major >= 1 ? de(v) : de(v * 1000);
-    ctx.textAlign = i === 0 ? 'left' : 'center';
-    ctx.fillText(label, i === 0 ? x + 0.6 * u : x, ty);
+  ctx.save();
+  ctx.lineCap = 'square';
+  // erst dunkle Kontur (lesbar auf hellem Papier), dann helle Linie (lesbar auf Dunklem)
+  for (const [col, extra] of [['rgba(0,0,0,.38)', Math.max(1.5, 0.22 * u)], ['rgba(255,255,255,.9)', 0]]) {
+    ctx.strokeStyle = col;
+    for (const lw of [...new Set(segs.map(q => q[4]))]) {
+      ctx.lineWidth = lw + extra;
+      ctx.beginPath();
+      for (const [a, b, c, d, w] of segs) if (w === lw) { ctx.moveTo(a, b); ctx.lineTo(c, d); }
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
