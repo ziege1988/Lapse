@@ -456,6 +456,25 @@ export async function trackAllAnchors(project, aligner, { onProgress, isCancelle
  * Misst Helligkeit/Farbe jedes Bildes im endgültigen Zuschnitt (für den Farbangleich).
  * Nutzt einen eigenen kleinen WebGL-Kontext.
  */
+/**
+ * Anteil „kräftig gelber“ Bildpunkte: Farbton 36–70°, Sättigung ≥ 0,4, Helligkeit ≥ 0,5.
+ * Erfasst z. B. Schleimpilz; beige Haferflocken, weißes Papier und braunes Holz bleiben außen vor (an echten Fotos geprüft).
+ */
+export function yellowFraction(px) {
+  let hit = 0, n = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i], g = px[i + 1], b = px[i + 2];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    if (mx < 20) continue; // außerhalb des Fotos (schwarz)
+    n++;
+    if (mx < 128 || (mx - mn) / mx < 0.4 || b === mx) continue;
+    let h = r === mx ? (g - b) / (mx - mn) : 2 + (b - r) / (mx - mn);
+    h *= 60; if (h < 0) h += 360;
+    if (h >= 36 && h <= 70) hit++;
+  }
+  return n ? hit / n : 0;
+}
+
 export class StatsEngine {
   constructor() {
     this.canvas = makeCanvas(4, 4);
@@ -491,6 +510,10 @@ export class StatsEngine {
       const nrm = Math.sqrt(ss) || 1;
       for (let i = 0; i < g.length; i++) g[i] /= nrm;
       f.cvec = g;
+      // Fläche: Anteil kräftig gelber Bildpunkte (z. B. Schleimpilz) im Bildausschnitt
+      const AW = 240, AH = Math.max(8, Math.round(AW / aspect));
+      this.r.draw([L], { target: { w: AW, h: AH } });
+      f.area = yellowFraction(this.r.readTarget());
       this.r.trim(80);
       onProgress?.(++done, list.length);
       if (done % 8 === 0) await new Promise(r => setTimeout(r, 0));

@@ -62,6 +62,7 @@ function projectInfo(project) {
   if (p.anchors.length) out.push(`Punkte    ${p.anchors.map(a => `(${num(a.x, 3)},${num(a.y, 3)})`).join(' ')}`);
   if (p.scale) out.push(`Maßstab   ${p.scale.mm} mm über (${num(p.scale.p1.x, 3)},${num(p.scale.p1.y, 3)})–(${num(p.scale.p2.x, 3)},${num(p.scale.p2.y, 3)}) · Balken ${p.settings.scaleBar} · Lineal ${p.settings.ruler ? 'an' : 'aus'}`);
   if (p.settings.roi) out.push(`Zoom      ${p.settings.roiOn ? 'an' : 'aus'} · Region ${['x', 'y', 'w', 'h'].map(k => num(p.settings.roi[k], 3)).join(' ')} · Ecke ${p.settings.insetPos} · Größe ${p.settings.insetSize} · Vergrößerung ${p.settings.insetZoom > 0 ? p.settings.insetZoom + '×' : 'auto'}`);
+  out.push(`Daten     ${['probeOn', 'nameOn', 'dateOn', 'areaOn', 'dishOn'].filter(k => p.settings[k]).join(', ') || 'aus'} · Fläche ${p.included.filter(f => f.area != null).map(f => (f.area * 100).toFixed(1)).join('/') || '–'} %`);
   out.push(`Zeit      ${p.settings.stampOn ? 'an' : 'aus'} · ${p.settings.stampMode} · Quelle ${p.settings.stampSource}${p.settings.stampInterval ? ' · Intervall ' + p.settings.stampInterval + ' s' : ''} · Fotos mit Aufnahmezeit ${p.included.filter(f => f.date != null).length}/${p.included.length}`);
   if (p.crop) out.push(`Zuschnitt ${['x', 'y', 'w', 'h'].map(k => num(p.crop[k], 3)).join(' ')}${p.customCrop ? ' · eigener' : ' · automatisch'}`);
   try { out.push(`Einst.    ${JSON.stringify(p.settings)}`); } catch { /* egal */ }

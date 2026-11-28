@@ -47,13 +47,14 @@ export function roiOf(project, crop = project.crop) {
 export function insetSpec(project, W, H, crop = project.crop) {
   const roi = roiOf(project, crop);
   if (!roi) return null;
-  const st = project.settings, a = roi.w / roi.h, m = Math.round(Math.min(W, H) * 0.035);
+  const st = project.settings, a = roi.w / roi.h, m = Math.round(4.5 * Math.min(W, H) / 100);
   let w = W * (st.insetSize || 0.38), h = w / a;
   if (h > H * 0.62) { h = H * 0.62; w = h * a; }
   if (w > W * 0.62) { w = W * 0.62; h = w / a; }
   w = Math.round(w); h = Math.round(h);
   const pos = st.insetPos || 'tr';
-  const x = pos.endsWith('l') ? m : W - m - w, y = pos.startsWith('t') ? m : H - m - h;
+  const off = stackOffset(project, W, H, pos, 'inset');
+  const x = pos.endsWith('l') ? m : W - m - w, y = pos.startsWith('t') ? m + off : H - m - off - h;
   // Vergrößerung gegenüber dem Hauptbild: automatisch (Region füllt das Fenster) oder fest (insetZoom).
   // Der Rahmen im Hauptbild bleibt immer die gewählte Region; nur der Bildinhalt im Fenster zoomt
   // (um die Mitte der Region).
@@ -92,6 +93,7 @@ export function drawComposite(r, project, layers, { global, W, H, overlay = true
   // Zeitanzeige: ändert sich mit jedem Videobild, deshalb eigene kleine Ebene
   const st = stampFor(project, layers, W, H);
   if (st) r.drawImage(st.canvas, st.rect);
+  for (const b of infoBlocks(project, layers, W, H)) r.drawImage(b.canvas, b.rect);
 }
 
 // ---------- Zeitanzeige ----------
@@ -147,9 +149,123 @@ export function stampFor(project, layers, W, H) {
   ctx.font = `600 ${fs}px ${FONT}`; ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.textBaseline = 'top';
   ctx.fillText(label, pad, pad * 0.8);
   drawSevenSeg(ctx, text, pad, pad * 0.8 + fs * 1.5, dh);
-  const m = Math.round(4.5 * u), pos = st.stampPos || 'tl';
-  const x = pos.endsWith('l') ? m : W - m - cw, y = pos.startsWith('t') ? m : H - m - chh;
+  const m = Math.round(4.5 * u), pos = st.stampPos || 'tr', off = stackOffset(project, W, H, pos, 'stamp');
+  const x = pos.endsWith('l') ? m : W - m - cw, y = pos.startsWith('t') ? m + off : H - m - off - chh;
   return { canvas: c, rect: { x, y, w: cw, h: chh } };
+}
+
+// ---------- Datenanzeige (wie auf der Startseite) und Anordnung in den Ecken ----------
+
+const GAP = u => Math.round(1.5 * u);
+const infoFont = u => Math.max(9, Math.round(2.5 * u));
+
+/** Zeilen der Datenblöcke je Ecke (ohne Werte, die sich je Videobild ändern). */
+function infoLines(project) {
+  const st = project.settings, T = frameTimes(project), out = { tl: [], bl: [], br: [] };
+  if (st.probeOn) out.tl.push('probe');
+  if (st.nameOn && (st.nameText || '').trim()) out.tl.push('name');
+  if (st.areaOn) out.bl.push('area', 'growth');
+  if (st.dishOn) out.br.push('dish');
+  if (st.dateOn && T.source === 'meta') out.br.push('date');
+  return out;
+}
+
+/** Größe (Höhe) eines Elements in einer Ecke – für das Stapeln. */
+function itemHeight(project, W, H, kind, corner) {
+  const u = Math.min(W, H) / 100, st = project.settings;
+  if (kind === 'info') {
+    const n = (infoLines(project)[corner] || []).length;
+    if (!n) return 0;
+    const fs = infoFont(u);
+    return Math.round(fs * 1.5 * n + 2 * Math.round(1.1 * u));
+  }
+  if (kind === 'stamp') {
+    if (!st.stampOn || (st.stampPos || 'tr') !== corner || !frameTimes(project).source) return 0;
+    const dh = Math.max(16, Math.round(5.4 * u)), fs = Math.max(8, Math.round(dh * 0.3)), pad = Math.round(dh * 0.32);
+    return Math.ceil(dh + fs * 1.5 + 2 * pad);
+  }
+  if (kind === 'bar') {
+    if (!barOn(st) || st.scaleBar !== corner || !mmPerUnit(project)) return 0;
+    const th = Math.max(5, 2.6 * u), fs = Math.max(10, 3.3 * u), pad = 1.6 * u;
+    return Math.ceil(th + 0.8 * u + fs * 1.05 + pad * 1.6);
+  }
+  return 0;
+}
+
+/** Abstand vom Bildrand, ab dem ein Element in seiner Ecke beginnt (Reihenfolge: Daten, Zeit, Maßstab, Region). */
+export function stackOffset(project, W, H, corner, kind) {
+  const order = ['info', 'stamp', 'bar', 'inset'], u = Math.min(W, H) / 100;
+  let off = 0;
+  for (const k of order) {
+    if (k === kind) break;
+    const h = itemHeight(project, W, H, k, corner);
+    if (h) off += h + GAP(u);
+  }
+  return off;
+}
+
+/** Flächenanteil des aktuellen Videobilds (bei Überblendung gewichtet). */
+function areaAt(project, layers) {
+  let sw = 0, sum = 0;
+  for (const L of layers) if (L.frame?.area != null) { sum += L.frame.area * L.weight; sw += L.weight; }
+  return sw ? sum / sw : null;
+}
+
+let infoCanvas = null;
+const de = (v, d = 1) => v.toFixed(d).replace('.', ',');
+
+/** Datenblöcke für dieses Videobild zeichnen: [{ canvas, rect }] (Canvas wird je Block neu benutzt). */
+export function* infoBlocks(project, layers, W, H) {
+  const st = project.settings, lines = infoLines(project), u = Math.min(W, H) / 100;
+  const fs = infoFont(u), pad = Math.round(1.1 * u), m = Math.round(4.5 * u), lh = Math.round(fs * 1.5);
+  const k = mmPerUnit(project), crop = project.crop;
+  const first = project.included.find(f => f.area != null);
+  for (const corner of ['tl', 'bl', 'br']) {
+    const L = lines[corner];
+    if (!L.length) continue;
+    const rows = [];
+    for (const kind of L) {
+      if (kind === 'probe') rows.push([`PROBE ${(st.probeText || '01').trim()}`, true]);
+      else if (kind === 'name') rows.push([st.nameText.trim(), false]);
+      else if (kind === 'dish') rows.push([`SCHALE ${(st.dishText || '').trim() || '–'}`, false]);
+      else if (kind === 'date') {
+        const at = timeAt(project, layers);
+        if (at) { const d = new Date(at.t), p2 = n => String(n).padStart(2, '0'); rows.push([`${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}`, false]); }
+      } else if (kind === 'area') {
+        const a = areaAt(project, layers);
+        if (a == null) continue;
+        if (k && crop) {
+          const mm2 = a * crop.w * crop.h * k * k;
+          rows.push([`FLÄCHE ${mm2 >= 100 ? de(mm2 / 100, 2) + ' CM²' : de(mm2, 1) + ' MM²'}`, false]);
+        } else rows.push([`FLÄCHE ${de(a * 100)} %`, false]);
+      } else if (kind === 'growth') {
+        const a = areaAt(project, layers);
+        if (a == null || !first?.area) continue;
+        const g = (a / first.area - 1) * 100;
+        rows.push([`WACHSTUM ${g >= 0 ? '+' : '−'}${de(Math.abs(g), 0)} %`, false]);
+      }
+    }
+    if (!rows.length) continue;
+    const c = infoCanvas ||= document.createElement('canvas'), ctx = c.getContext('2d');
+    ctx.font = `600 ${fs}px ${FONT}`;
+    const tw = Math.max(...rows.map(([t]) => ctx.measureText(t.toUpperCase()).width + t.length * fs * 0.06));
+    const cw = Math.ceil(tw + 2 * pad), chh = itemHeight(project, W, H, 'info', corner);
+    if (c.width !== cw || c.height !== chh) { c.width = cw; c.height = chh; }
+    ctx.clearRect(0, 0, cw, chh);
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(0, 0, cw, chh, Math.round(u)); else ctx.rect(0, 0, cw, chh); ctx.fill();
+    ctx.font = `600 ${fs}px ${FONT}`; ctx.textBaseline = 'middle';
+    const right = corner.endsWith('r');
+    ctx.textAlign = right ? 'right' : 'left';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${(fs * 0.06).toFixed(1)}px`;
+    rows.forEach(([t, accent], i) => {
+      ctx.fillStyle = accent ? '#f3c08a' : i === 0 ? 'rgba(255,255,255,.95)' : 'rgba(215,227,234,.85)';
+      ctx.fillText(t.toUpperCase(), right ? cw - pad : pad, pad + lh * (i + 0.5));
+    });
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    const x = right ? W - m - cw : m, y = corner.startsWith('t') ? m : H - m - chh;
+    yield { canvas: c, rect: { x, y, w: cw, h: chh } };
+  }
 }
 
 /** Kennung des aktuellen Zustands – ändert sie sich, muss die Einblendung neu gezeichnet werden. */
@@ -159,7 +275,8 @@ export function overlaySig(project, W, H, crop = project.crop) {
   const k = mmPerUnit(project), ins = insetSpec(project, W, H, crop);
   const scale = k && (barOn(st) || st.ruler);
   if (!scale && !ins) return 'none';
-  return `${W}x${H}|${scale ? (barOn(st) ? st.scaleBar : '-') + (st.ruler ? 'R' : '-') + k.toFixed(6) : 'noscale'}|${crop.x.toFixed(5)},${crop.y.toFixed(5)},${crop.w.toFixed(5)}|${ins ? JSON.stringify(ins.rect) + JSON.stringify(ins.roi) : 'noroi'}`;
+  const lay = ['probeOn', 'nameOn', 'areaOn', 'dishOn', 'dateOn', 'stampOn', 'stampPos'].map(k => st[k] ? String(st[k]) : '-').join(',') + (st.nameText ? 'n' : '');
+  return `${lay}|${W}x${H}|${scale ? (barOn(st) ? st.scaleBar : '-') + (st.ruler ? 'R' : '-') + k.toFixed(6) : 'noscale'}|${crop.x.toFixed(5)},${crop.y.toFixed(5)},${crop.w.toFixed(5)}|${ins ? JSON.stringify(ins.rect) + JSON.stringify(ins.roi) : 'noroi'}`;
 }
 
 /**
@@ -176,7 +293,7 @@ export function makeOverlay(project, W, H, crop = project.crop) {
   const ins = insetSpec(project, W, H, crop);
   if (k && st.ruler) drawRuler(ctx, W, H, u, k * crop.w / W);
   if (ins) drawInsetFrames(ctx, ins, crop, W, H, u);
-  if (k && barOn(st)) drawBar(ctx, W, H, u, k * crop.w / W, st.scaleBar);
+  if (k && barOn(st)) drawBar(ctx, W, H, u, k * crop.w / W, st.scaleBar, stackOffset(project, W, H, st.scaleBar, 'bar'));
   return c;
 }
 
@@ -202,10 +319,10 @@ function drawInsetFrames(ctx, ins, crop, W, H, u) {
 }
 
 /** Maßstabsbalken mit runder Länge, unten links (bl) oder rechts (br). */
-function drawBar(ctx, W, H, u, mmPerPx, pos) {
+function drawBar(ctx, W, H, u, mmPerPx, pos, off = 0) {
   const L = niceLength(W * 0.2 * mmPerPx), len = L / mmPerPx;
-  const m = 4.5 * u, bh = Math.max(2, 0.8 * u), th = Math.max(5, 2.6 * u);
-  const x0 = pos === 'br' ? W - m - len : m, y = H - m;
+  const m = Math.round(4.5 * u), bh = Math.max(2, 0.8 * u), th = Math.max(5, 2.6 * u);
+  const x0 = pos === 'br' ? W - m - len - 1.6 * u : m + 1.6 * u, y = H - m - off - 1.6 * u;
   const fs = Math.max(10, 3.3 * u);
   ctx.save();
   ctx.font = `600 ${fs}px ${FONT}`;

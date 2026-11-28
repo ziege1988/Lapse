@@ -661,6 +661,7 @@ function openCrop() {
   updateScaleUI();
   updateRoiUI();
   updateStampUI();
+  updateInfoUI();
   updatePrimary();
   window.scrollTo({ top: 0 });
 }
@@ -883,6 +884,31 @@ $('#roi-edit').onclick = () => { stopCropPlay(); openEditor('roi'); };
 $('#inset-pos').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; project.settings.insetPos = b.dataset.v; roiChanged(); });
 $('#inset-size').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; project.settings.insetSize = +b.dataset.v; roiChanged(); });
 
+// ---- Datenanzeige (Probe, Bezeichnung, Datum, Fläche, Schale)
+function updateInfoUI() {
+  const st = project.settings, T = frameTimes(project);
+  $$('#info-box [data-info]').forEach(i => { i.checked = !!st[i.dataset.info]; });
+  $$('#info-box [data-text]').forEach(i => { if (document.activeElement !== i) i.value = st[i.dataset.text] ?? ''; i.disabled = !st[i.dataset.text.replace('Text', 'On')]; });
+  const dateIn = $('#info-box [data-info="dateOn"]');
+  dateIn.disabled = !T.allMeta;
+  const p2 = n => String(n).padStart(2, '0'), d0 = new Date(T.t0);
+  $('#info-date-note').textContent = T.allMeta ? `${p2(d0.getDate())}.${p2(d0.getMonth() + 1)}.${d0.getFullYear()} …` : 'keine Aufnahmezeit';
+  const inc = project.included.filter(f => f.area != null), k = mmPerUnit(project), c = project.crop;
+  const fmtA = a => (k && c ? (a * c.w * c.h * k * k / 100).toFixed(2).replace('.', ',') + ' cm²' : (a * 100).toFixed(1).replace('.', ',') + ' %');
+  $('#info-area-note').textContent = inc.length ? `${fmtA(inc[0].area)} → ${fmtA(inc[inc.length - 1].area)}` : '';
+  const n = ['probeOn', 'nameOn', 'dateOn', 'areaOn', 'dishOn'].filter(k2 => st[k2]).length;
+  $('#info-state').classList.toggle('off', !n);
+  $('#info-state').textContent = n ? `${n} von 5` : 'aus';
+}
+function infoChanged() { updateInfoUI(); player?.render(); scheduleSave(); }
+$$('#info-box [data-info]').forEach(i => i.onchange = () => {
+  project.settings[i.dataset.info] = i.checked;
+  // Schale: Durchmesser aus der Maßstab-Kalibrierung vorschlagen
+  if (i.dataset.info === 'dishOn' && i.checked && mmPerUnit(project) && (!project.settings.dishText || project.settings.dishText === '90 mm')) project.settings.dishText = `${String(project.scale.mm).replace('.', ',')} mm`;
+  infoChanged();
+});
+$$('#info-box [data-text]').forEach(i => i.oninput = () => { project.settings[i.dataset.text] = i.value; infoChanged(); });
+
 // ---- Zeitanzeige (digital) im Video
 let stampUnit = 60;
 function updateStampUI() {
@@ -909,7 +935,7 @@ function updateStampUI() {
   $('#stamp-state').textContent = !on ? 'aus' : !T.source ? 'Abstand fehlt' : (st.stampMode === 'clock' && T.source === 'meta' ? 'Uhrzeit' : 'Laufzeit') + (T.source === 'meta' ? ' · Metadaten' : ` · alle ${dur(st.stampInterval)}`);
   for (const el of ['#stamp-mode', '#stamp-int', '#stamp-pos', '#stamp-force-row']) $(el).classList.toggle('dim', !on);
 }
-function stampChanged() { project._times = null; updateStampUI(); player?.render(); scheduleSave(); }
+function stampChanged() { project._times = null; updateStampUI(); updateInfoUI(); player?.render(); scheduleSave(); }
 $('#stamp-on').onchange = e => { project.settings.stampOn = e.target.checked; stampChanged(); };
 $('#stamp-mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b && !b.disabled) { project.settings.stampMode = b.dataset.v; stampChanged(); } });
 $('#stamp-force').onchange = e => { project.settings.stampSource = e.target.checked ? 'interval' : 'auto'; stampChanged(); };

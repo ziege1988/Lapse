@@ -230,3 +230,11 @@ body.ed-open .toast { bottom: auto; top: calc(64px + var(--safe-t)); z-index: 26
 #stamp-box .dim { opacity: .4; pointer-events: none; }
 #stamp-mode button:disabled { opacity: .35; }
 #stamp-int { display: grid; gap: 6px; }
+
+/* Datenanzeige */
+.info-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; }
+.info-row .switch { margin: 0; min-height: 40px; }
+.info-in { width: 150px; height: 36px; border: 1px solid var(--line); border-radius: 10px; background: transparent; padding: 0 10px; font: 600 13px var(--mono); color: var(--data); text-transform: uppercase; }
+.info-in:disabled { opacity: .35; }
+.info-in::placeholder { text-transform: none; font-weight: 400; color: #59616b; }
+.info-note { font: 11.5px var(--mono); color: var(--muted); text-align: right; }

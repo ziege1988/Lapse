@@ -35,7 +35,13 @@ export const DEFAULT_SETTINGS = {
   stampMode: 'elapsed',     // elapsed (Laufzeit ab erstem Foto) | clock (Uhrzeit + Datum)
   stampSource: 'auto',      // auto (Metadaten, sonst Intervall) | interval (immer Intervall)
   stampInterval: 0,         // Sekunden zwischen den Aufnahmen (falls keine Metadaten)
-  stampPos: 'tl',           // Ecke: tl | tr | bl | br
+  stampPos: 'tr',           // Ecke: tl | tr | bl | br
+  // Datenanzeige im Video (wie auf der Startseite)
+  probeOn: false, probeText: '01',   // oben links: PROBE 01
+  nameOn: false, nameText: '',       // oben links: Bezeichnung
+  areaOn: false,                     // unten links: Fläche & Wachstum (gelbe Bereiche)
+  dishOn: false, dishText: '90 mm',  // unten rechts: Schale
+  dateOn: false,                     // unten rechts: Datum der Aufnahme
   insetZoom: 0,             // Vergrößerung fest (z. B. 3) oder 0 = automatisch aus der Region
 };
 

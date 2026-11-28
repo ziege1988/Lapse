@@ -47,6 +47,10 @@ Im Schritt **Zuschnitt** unter „Maßstab“: „Maßstab kalibrieren“ öffne
 
 Im Schritt **Zuschnitt** unter „Region of Interest“: „Region wählen“ öffnet den Vollbild-Editor; dort eine Region aufziehen (verschieben, Ecken/Kanten ziehen). Im Video wird die Region dezent weiß umrahmt und zusätzlich vergrößert in einer wählbaren Ecke gezeigt (Größe S/M/L). Die Vergrößerung ist einstellbar (Auto oder 1–8×): Der Rahmen im Video bleibt die gewählte Region, nur das Bild im Fenster zoomt um die Mitte der Region und wird im Video angezeigt – live mit dem Zeitraffer, identisch in Vorschau und Export. Ein-/ausschaltbar; „▶ Video abspielen“ im Zuschnitt zeigt das Ergebnis sofort.
 
+### Datenanzeige
+
+Im Schritt **Zuschnitt** unter „Datenanzeige“, jedes Element einzeln zuschaltbar und angeordnet wie auf der Startseite: oben links **Probe** (z. B. „PROBE 07“) und **Bezeichnung**, oben rechts die **Zeit**, unten links **Fläche & Wachstum**, unten rechts **Schale** und **Datum** (aus der Aufnahmezeit). Die Fläche wird je Foto gemessen: Anteil kräftig gelber Bildpunkte (z. B. Schleimpilz) – beige Haferflocken, weißes Papier und braunes Holz zählen nicht. Mit kalibriertem Maßstab in cm², sonst in % des Bildes; Wachstum relativ zum ersten Foto; bei Überblendung gleitend. Teilen sich Elemente eine Ecke, werden sie gestapelt (Daten am Rand, dann Zeit, Maßstab, Region of Interest).
+
 ### Zeitanzeige
 
 Im Schritt **Zuschnitt** unter „Zeitanzeige“: digitale 7-Segment-Anzeige im Video, wahlweise **Laufzeit** (T+ ab dem ersten Foto, z. B. 00:58:00) oder **Uhrzeit & Datum** der Aufnahme. Quelle ist die Aufnahmezeit aus den Metadaten der Fotos (bei der Kamera-Aufnahme in Lapse automatisch); fehlt sie, wird ein fester Abstand angegeben (z. B. alle 2 min). Bei weicher Überblendung läuft die Anzeige zwischen den Fotos gleichmäßig weiter. Ecke wählbar, identisch in Vorschau und Export.
