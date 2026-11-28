@@ -127,6 +127,26 @@ export class Renderer {
     for (const [k, v] of [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
   }
 
+  /** Kleines Bild (z. B. Zeitanzeige) in ein Rechteck zeichnen (Pixel, oben links). */
+  drawImage(source, rect) {
+    const gl = this.gl;
+    if (this.lost) return;
+    this.stampTex ||= gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.stampTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    for (const [k, v] of [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    const H = this._vh || this.canvas.height;
+    gl.viewport(Math.round(rect.x), Math.round(H - rect.y - rect.h), Math.round(rect.w), Math.round(rect.h));
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform1i(this.loc.u_mode, 2);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.uniform1i(this.loc.u_mode, 0);
+    gl.disable(gl.BLEND);
+    gl.viewport(0, 0, this._vw || this.canvas.width, H);
+  }
+
   /** Einblendung über das ganze Bild legen (nach allen Ebenen). */
   drawOverlay() {
     if (!this.ov || this.lost) return;

@@ -178,6 +178,23 @@ async function captureScenario(base, check) {
     await page.click('#primary'); // -> Export
     await page.waitForTimeout(800);
     check(await page.evaluate(() => window.__lapse.ui.view === 'export' && !window.__lapse.project.customCrop), 'Export ohne Änderung: automatischer Ausschnitt');
+    // Zeitanzeige: Metadaten (Aufnahmezeit) und Intervall
+    const stamp = await page.evaluate(async () => {
+      const { frameTimes, stampFor } = await import('./js/overlay.js');
+      const p = window.__lapse.project, inc = p.included, base = new Date(2026, 10, 28, 14, 0, 0).getTime();
+      const saved = inc.map(f => f.date);
+      inc.forEach((f, i) => { f.date = base + i * 120000; });
+      p._times = null; Object.assign(p.settings, { stampOn: true, stampMode: 'clock', stampSource: 'auto' });
+      const T = frameTimes(p), L = [{ frame: inc[3], weight: 0.5 }, { frame: inc[4], weight: 0.5 }];
+      const ok1 = T.source === 'meta' && T.t1 - T.t0 === (inc.length - 1) * 120000 && !!stampFor(p, L, 1920, 1080);
+      inc.forEach((f, i) => { f.date = saved[i]; });
+      Object.assign(p.settings, { stampSource: 'interval', stampInterval: 120 }); p._times = null;
+      const T2 = frameTimes(p);
+      const ok2 = T2.source === 'interval' && T2.map.get(inc[2]) === 240000;
+      Object.assign(p.settings, { stampOn: false, stampSource: 'auto', stampInterval: 0 }); p._times = null;
+      return ok1 && ok2;
+    });
+    check(stamp, 'Zeitanzeige: Aufnahmezeit aus Metadaten und festes Intervall');
     for (const fmt of ['mp4-avc', 'webm-vp9', 'gif', 'zip']) {
       if (!(await page.$eval(`#formats input[value="${fmt}"]`, i => !i.disabled))) { console.log(`– ${fmt} in diesem Browser nicht verfügbar`); continue; }
       await page.click(`#formats input[value="${fmt}"]`);

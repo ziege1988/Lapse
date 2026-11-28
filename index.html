@@ -38,10 +38,9 @@
         <section class="hero" aria-label="Lapse">
           <div class="hero-stage">
             <canvas id="hero-canvas" aria-hidden="true"></canvas>
-            <div class="hero-hud tl"><b>PROBE 01</b><span>LEPIDOPTERA</span></div>
-            <div class="hero-hud tr"><span id="hh-t">T+ 00:00 h</span><span id="hh-f">FLÜGEL 0°</span></div>
-            <div class="hero-hud bl"><span id="hh-a">ÖFFNUNG 0 %</span><span id="hh-d">ZYKLUS 4,2 S</span></div>
-            <div class="hero-hud br"><span>REF · 4 PKT</span><span><i class="rec-dot"></i>LIVE</span></div>
+            <div class="hero-hud tl"><b>PROBE 01</b><span>MYZEL · KOLONIE</span></div>
+            <div class="hero-hud bl"><span id="hh-a">FLÄCHE 0,0 %</span><span id="hh-d">Ø 0,0 MM</span></div>
+            <div class="hero-hud br"><span>SCHALE 90 MM</span><span><i class="rec-dot"></i>LIVE</span></div>
           </div>
           <div class="hero-text">
             <div class="kicker">ZEITRAFFER-LABOR</div>
@@ -291,6 +290,26 @@
             <div class="chips" id="roi-zoom-chips"><button data-z="0">Auto</button><button data-z="2">2×</button><button data-z="3">3×</button><button data-z="4">4×</button><button data-z="6">6×</button></div>
           </div>
           <p class="help">Die Region of Interest wird im Video dezent weiß umrahmt und in der gewählten Ecke vergrößert gezeigt – live mit dem Zeitraffer. Der Rahmen im Video bleibt die gewählte Region; die Vergrößerung zoomt nur das Bild im Fenster (um die Mitte der Region). „Auto“ zeigt die ganze Region.</p>
+        </div>
+
+        <div class="scale-box" id="stamp-box">
+          <div class="scale-head">
+            <span class="sec">Zeitanzeige</span>
+            <span class="scale-state off" id="stamp-state">aus</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="stamp-on"><span>Digitale Zeitanzeige im Video</span></label>
+          <div class="seg" id="stamp-mode"><button data-v="elapsed">Laufzeit (T+)</button><button data-v="clock">Uhrzeit &amp; Datum</button></div>
+          <p class="help" id="stamp-src"></p>
+          <div id="stamp-int">
+            <span class="label">Abstand zwischen den Aufnahmen</span>
+            <div class="scale-mm">
+              <label class="scale-input"><input type="number" id="stamp-int-val" inputmode="decimal" min="0.1" step="any" aria-label="Abstand"></label>
+              <div class="seg mini" id="stamp-int-u"><button data-v="1">s</button><button data-v="60">min</button><button data-v="3600">h</button></div>
+            </div>
+          </div>
+          <label class="switch" id="stamp-force-row"><input type="checkbox" id="stamp-force"><span>Festen Abstand statt Aufnahmezeiten verwenden</span></label>
+          <div><span class="label">Ecke</span>
+            <div class="seg" id="stamp-pos"><button data-v="tl" aria-label="oben links">↖</button><button data-v="tr" aria-label="oben rechts">↗</button><button data-v="bl" aria-label="unten links">↙</button><button data-v="br" aria-label="unten rechts">↘</button></div></div>
         </div>
 
         <div class="scale-box" id="scale-box">

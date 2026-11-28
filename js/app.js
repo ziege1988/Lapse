@@ -9,7 +9,7 @@ import { BUILD, BUILD_DATE, isDev } from './version.js';
 import { ProjectStore } from './store.js';
 import { Capture } from './capture.js';
 import { Hero } from './hero.js';
-import { mmPerUnit, fmtLength, makeOverlay, overlaySig, effectiveRoi } from './overlay.js';
+import { mmPerUnit, fmtLength, makeOverlay, overlaySig, effectiveRoi, frameTimes } from './overlay.js';
 import { log, onLog, installHooks, buildReport, counts, stamp } from './diag.js';
 
 installHooks();
@@ -77,7 +77,7 @@ function toast(msg, ms = 2800) {
 // ---- Startbild (lebendige Petrischale) – läuft nur, wenn die Startseite sichtbar ist
 let hero = null;
 function heroRun(on) {
-  if (on && !hero) { try { hero = new Hero($('#hero-canvas'), { t: $('#hh-t'), f: $('#hh-f'), a: $('#hh-a'), d: $('#hh-d') }); } catch (err) { console.error(err); return; } }
+  if (on && !hero) { try { hero = new Hero($('#hero-canvas'), { a: $('#hh-a'), d: $('#hh-d') }); } catch (err) { console.error(err); return; } }
   if (!hero) return;
   const vis = on && !document.hidden && !document.body.classList.contains('capture-open');
   vis ? hero.start() : hero.stop();
@@ -660,6 +660,7 @@ function openCrop() {
   renderCrop();
   updateScaleUI();
   updateRoiUI();
+  updateStampUI();
   updatePrimary();
   window.scrollTo({ top: 0 });
 }
@@ -881,6 +882,46 @@ $('#roi-on').onchange = e => {
 $('#roi-edit').onclick = () => { stopCropPlay(); openEditor('roi'); };
 $('#inset-pos').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; project.settings.insetPos = b.dataset.v; roiChanged(); });
 $('#inset-size').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; project.settings.insetSize = +b.dataset.v; roiChanged(); });
+
+// ---- Zeitanzeige (digital) im Video
+let stampUnit = 60;
+function updateStampUI() {
+  const st = project.settings, T = frameTimes(project), on = !!st.stampOn;
+  const p2 = n => String(n).padStart(2, '0');
+  const fmtD = ms => { const d = new Date(ms); return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}. ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+  const dur = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h} h ${m} min` : m ? `${m} min` : `${s} s`; };
+  $('#stamp-on').checked = on;
+  $$('#stamp-mode button').forEach(b => { b.classList.toggle('on', b.dataset.v === (st.stampMode || 'elapsed')); b.disabled = b.dataset.v === 'clock' && !T.allMeta; });
+  const n = project.included.length;
+  $('#stamp-src').textContent = T.allMeta
+    ? `Aufnahmezeiten aus den Fotos: ${fmtD(T.t0)} → ${fmtD(T.t1)} · Dauer ${dur((T.t1 - T.t0) / 1000)} · Ø Abstand ${dur((T.t1 - T.t0) / 1000 / Math.max(1, n - 1))}`
+    : 'Nicht alle Fotos enthalten eine Aufnahmezeit – bitte den Abstand zwischen den Aufnahmen angeben (Laufzeit wird daraus berechnet).';
+  const useInt = !T.allMeta || st.stampSource === 'interval';
+  $('#stamp-force-row').hidden = !T.allMeta;
+  $('#stamp-force').checked = st.stampSource === 'interval';
+  $('#stamp-int').hidden = !useInt;
+  if (st.stampInterval > 0 && !updateStampUI.unitSet) { stampUnit = st.stampInterval % 3600 === 0 ? 3600 : st.stampInterval % 60 === 0 ? 60 : 1; updateStampUI.unitSet = true; }
+  $$('#stamp-int-u button').forEach(b => b.classList.toggle('on', +b.dataset.v === stampUnit));
+  if (document.activeElement !== $('#stamp-int-val')) $('#stamp-int-val').value = st.stampInterval > 0 ? +(st.stampInterval / stampUnit).toFixed(3) : '';
+  $$('#stamp-pos button').forEach(b => b.classList.toggle('on', b.dataset.v === (st.stampPos || 'tl')));
+  const ok = on && !!T.source;
+  $('#stamp-state').classList.toggle('off', !ok);
+  $('#stamp-state').textContent = !on ? 'aus' : !T.source ? 'Abstand fehlt' : (st.stampMode === 'clock' && T.source === 'meta' ? 'Uhrzeit' : 'Laufzeit') + (T.source === 'meta' ? ' · Metadaten' : ` · alle ${dur(st.stampInterval)}`);
+  for (const el of ['#stamp-mode', '#stamp-int', '#stamp-pos', '#stamp-force-row']) $(el).classList.toggle('dim', !on);
+}
+function stampChanged() { project._times = null; updateStampUI(); player?.render(); scheduleSave(); }
+$('#stamp-on').onchange = e => { project.settings.stampOn = e.target.checked; stampChanged(); };
+$('#stamp-mode').addEventListener('click', e => { const b = e.target.closest('button'); if (b && !b.disabled) { project.settings.stampMode = b.dataset.v; stampChanged(); } });
+$('#stamp-force').onchange = e => { project.settings.stampSource = e.target.checked ? 'interval' : 'auto'; stampChanged(); };
+$('#stamp-int-val').oninput = e => { const v = parseFloat(String(e.target.value).replace(',', '.')); project.settings.stampInterval = v > 0 ? v * stampUnit : 0; stampChanged(); };
+$('#stamp-int-u').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const v = parseFloat(String($('#stamp-int-val').value).replace(',', '.'));
+  stampUnit = +b.dataset.v; updateStampUI.unitSet = true;
+  if (v > 0) project.settings.stampInterval = v * stampUnit;
+  stampChanged();
+});
+$('#stamp-pos').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { project.settings.stampPos = b.dataset.v; stampChanged(); } });
 
 // ---- Video im Zuschnitt-Schritt abspielen (mit Zuschnitt, Region of Interest und Einblendungen)
 let cropPlaying = false;
@@ -2617,6 +2658,7 @@ async function importCaptured(files, anchors) {
   }
   showView('photos');
   await addFiles(files);
+  for (const f of project.frames) if (f.date == null && f.modified) f.date = f.modified; // Zeitstempel der Aufnahme
   if (project.frames.length < 2) { toast('Für ein Video werden mindestens 2 Aufnahmen gebraucht.', 4000); return; }
   project.settings.refMode = 'manual';
   project.refId = project.frames[0].id;

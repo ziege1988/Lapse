@@ -31,6 +31,11 @@ export const DEFAULT_SETTINGS = {
   roi: null,                // Region {x, y, w, h} im Bezugsfoto (kanonisch)
   insetPos: 'tr',           // Ecke der vergrößerten Darstellung: tl | tr | bl | br
   insetSize: 0.38,          // Breite der vergrößerten Darstellung (Anteil der Videobreite)
+  stampOn: false,           // Zeitanzeige (digital) im Video
+  stampMode: 'elapsed',     // elapsed (Laufzeit ab erstem Foto) | clock (Uhrzeit + Datum)
+  stampSource: 'auto',      // auto (Metadaten, sonst Intervall) | interval (immer Intervall)
+  stampInterval: 0,         // Sekunden zwischen den Aufnahmen (falls keine Metadaten)
+  stampPos: 'tl',           // Ecke: tl | tr | bl | br
   insetZoom: 0,             // Vergrößerung fest (z. B. 3) oder 0 = automatisch aus der Region
 };
 

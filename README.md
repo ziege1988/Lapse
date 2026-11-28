@@ -47,6 +47,10 @@ Im Schritt **Zuschnitt** unter „Maßstab“: „Maßstab kalibrieren“ öffne
 
 Im Schritt **Zuschnitt** unter „Region of Interest“: „Region wählen“ öffnet den Vollbild-Editor; dort eine Region aufziehen (verschieben, Ecken/Kanten ziehen). Im Video wird die Region dezent weiß umrahmt und zusätzlich vergrößert in einer wählbaren Ecke gezeigt (Größe S/M/L). Die Vergrößerung ist einstellbar (Auto oder 1–8×): Der Rahmen im Video bleibt die gewählte Region, nur das Bild im Fenster zoomt um die Mitte der Region und wird im Video angezeigt – live mit dem Zeitraffer, identisch in Vorschau und Export. Ein-/ausschaltbar; „▶ Video abspielen“ im Zuschnitt zeigt das Ergebnis sofort.
 
+### Zeitanzeige
+
+Im Schritt **Zuschnitt** unter „Zeitanzeige“: digitale 7-Segment-Anzeige im Video, wahlweise **Laufzeit** (T+ ab dem ersten Foto, z. B. 00:58:00) oder **Uhrzeit & Datum** der Aufnahme. Quelle ist die Aufnahmezeit aus den Metadaten der Fotos (bei der Kamera-Aufnahme in Lapse automatisch); fehlt sie, wird ein fester Abstand angegeben (z. B. alle 2 min). Bei weicher Überblendung läuft die Anzeige zwischen den Fotos gleichmäßig weiter. Ecke wählbar, identisch in Vorschau und Export.
+
 ### Diagnose
 
 „DIAG“ oben (auch im Rechenprotokoll und in der Aufnahme) erstellt einen Bericht mit Gerät, Funktionen, Projekt, Werten je Foto, Fehlern und Rechenprotokoll – zum Kopieren und Weitergeben. Keine Bilder.
@@ -141,7 +145,8 @@ js/app.js             Steuerung der Oberfläche
 js/capture.js         Zeitraffer-Aufnahme (Kamera, Messwerte, Testfoto, Timer)
 js/overlay.js         Einblendungen im Video (Maßstab)
 js/diag.js            Rechenprotokoll und Diagnosebericht
-js/hero.js            Startbild (Schmetterling auf einem Blatt)
+js/hero.js            Startbild (Petrischale mit wachsender Pilzkolonie)
+js/sevenseg.js        7-Segment-Ziffern für die Zeitanzeige
 css/lab.css, hero.css Labor-Optik und Startseite
 css/capture.css       Gestaltung der Aufnahme-Ansicht
 js/project.js         Projektmodell: Transformationen, Zuschnitt, Farbangleich, Zeitplan, Qualität

@@ -225,3 +225,8 @@ body.ed-open .toast { bottom: auto; top: calc(64px + var(--safe-t)); z-index: 26
 .roi-zoom { margin: 2px 0 0; }
 .roi-zoom.dim { opacity: .4; pointer-events: none; }
 .roi-zoom .chips { margin-top: 4px; }
+
+/* Zeitanzeige */
+#stamp-box .dim { opacity: .4; pointer-events: none; }
+#stamp-mode button:disabled { opacity: .35; }
+#stamp-int { display: grid; gap: 6px; }

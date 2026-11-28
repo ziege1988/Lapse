@@ -3,6 +3,8 @@
 // und gilt nach dem Ausrichten für alle Fotos, weil alle in die Lage des Bezugsfotos gebracht werden.
 
 const NICE = [0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
+import { drawSevenSeg, sevenSegWidth, fmtElapsed, fmtClockTime } from './sevenseg.js';
+
 const FONT = '"SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
 
 /** Millimeter je kanonischer Einheit (Bezugsfoto, Länge relativ zur langen Kante) oder null. */
@@ -87,6 +89,67 @@ export function drawComposite(r, project, layers, { global, W, H, overlay = true
   const ins = insetSpec(project, W, H);
   if (ins) r.draw(layers.map(L => ({ ...L, M: project.layerMatrix(L.frame, ins.roi) })), { global, viewport: ins.rect, clear: false });
   if (overlay) r.drawOverlay();
+  // Zeitanzeige: ändert sich mit jedem Videobild, deshalb eigene kleine Ebene
+  const st = stampFor(project, layers, W, H);
+  if (st) r.drawImage(st.canvas, st.rect);
+}
+
+// ---------- Zeitanzeige ----------
+
+/**
+ * Zeitpunkte der Fotos (ms). Quelle: Aufnahmezeit aus den Metadaten (wenn alle Fotos eine haben)
+ * oder ein festes Intervall (Einstellung stampInterval, Sekunden). Ergebnis wird zwischengespeichert.
+ */
+export function frameTimes(project) {
+  const st = project.settings, inc = project.included;
+  const allMeta = inc.length > 0 && inc.every(f => f.date != null);
+  const source = st.stampSource === 'interval' || !allMeta ? (st.stampInterval > 0 ? 'interval' : null) : 'meta';
+  const sig = `${inc.length}|${inc[0]?.id}|${inc[inc.length - 1]?.id}|${source}|${st.stampInterval}`;
+  if (project._times?.sig === sig) return project._times;
+  const map = new Map();
+  if (source === 'meta') for (const f of inc) map.set(f, f.date);
+  else if (source === 'interval') inc.forEach((f, i) => map.set(f, i * st.stampInterval * 1000));
+  const vals = [...map.values()];
+  project._times = { sig, source, map, allMeta, t0: vals.length ? Math.min(...vals) : 0, t1: vals.length ? Math.max(...vals) : 0 };
+  return project._times;
+}
+
+/** Zeit des aktuellen Videobilds: bei Überblendung gewichtet zwischen den Fotos (läuft weich weiter). */
+export function timeAt(project, layers) {
+  const T = frameTimes(project);
+  if (!T.source) return null;
+  let sw = 0, sum = 0;
+  for (const L of layers) { const v = T.map.get(L.frame); if (v != null) { sum += v * L.weight; sw += L.weight; } }
+  return sw ? { t: sum / sw, T } : null;
+}
+
+const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+let stampCanvas = null;
+
+/** Zeichnet die digitale Zeitanzeige für dieses Videobild; Rückgabe { canvas, rect } oder null. */
+export function stampFor(project, layers, W, H) {
+  const st = project.settings;
+  if (!st.stampOn || !layers.length) return null;
+  const at = timeAt(project, layers);
+  if (!at) return null;
+  const clock = st.stampMode === 'clock' && at.T.source === 'meta';
+  const text = clock ? fmtClockTime(at.t) : fmtElapsed(at.t - at.T.t0);
+  const d = new Date(at.t), p2 = n => String(n).padStart(2, '0');
+  const label = clock ? `${WD[d.getDay()]} ${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}` : 'T+ LAUFZEIT';
+  const u = Math.min(W, H) / 100, dh = Math.max(16, Math.round(5.4 * u)), fs = Math.max(8, Math.round(dh * 0.3)), pad = Math.round(dh * 0.32);
+  const cw = Math.ceil(sevenSegWidth(text, dh) + 2 * pad + dh * 0.1), chh = Math.ceil(dh + fs * 1.5 + 2 * pad);
+  const c = stampCanvas ||= document.createElement('canvas');
+  if (c.width !== cw || c.height !== chh) { c.width = cw; c.height = chh; }
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, cw, chh);
+  ctx.fillStyle = 'rgba(0,0,0,.5)';
+  ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(0, 0, cw, chh, Math.round(u)); else ctx.rect(0, 0, cw, chh); ctx.fill();
+  ctx.font = `600 ${fs}px ${FONT}`; ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.textBaseline = 'top';
+  ctx.fillText(label, pad, pad * 0.8);
+  drawSevenSeg(ctx, text, pad, pad * 0.8 + fs * 1.5, dh);
+  const m = Math.round(4.5 * u), pos = st.stampPos || 'tl';
+  const x = pos.endsWith('l') ? m : W - m - cw, y = pos.startsWith('t') ? m : H - m - chh;
+  return { canvas: c, rect: { x, y, w: cw, h: chh } };
 }
 
 /** Kennung des aktuellen Zustands – ändert sie sich, muss die Einblendung neu gezeichnet werden. */
