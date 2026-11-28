@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lapse</title>
+  <meta name="description" content="Zeitraffer aus Fotos: automatisch ausrichten, zuschneiden, Belichtung angleichen und als Video exportieren – direkt im Browser.">
+  <meta name="theme-color" content="#141517">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lapse">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/lab.css">
+  <link rel="stylesheet" href="css/capture.css">
+  <link rel="stylesheet" href="css/hero.css">
+</head>
+<body class="booting">
+  <header class="top">
+    <div class="brand"><img src="icons/icon-192.png" alt="" width="24" height="24"><span>LAPSE</span><button class="diag-btn" id="diag-btn" aria-label="Diagnose öffnen" title="Diagnose"><i class="led"></i>DIAG</button></div>
+    <nav class="steps" aria-label="Schritte">
+      <button data-view="photos" class="step active"><b>01</b> Fotos</button>
+      <button data-view="points" class="step" disabled><b>02</b> Punkte</button>
+      <button data-view="edit" class="step" disabled><b>03</b> Vorschau</button>
+      <button data-view="crop" class="step" disabled><b>04</b> Zuschnitt</button>
+      <button data-view="export" class="step" disabled><b>05</b> Export</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 1 · FOTOS -->
+    <section id="view-photos" class="view">
+      <div class="guide" id="guide-photos"><b>Schritt 1 von 5 · Fotos auswählen</b><p>Wähle alle Fotos deiner Serie aus. Danach geht es unten mit dem orangen Knopf weiter.</p></div>
+      <div id="empty" class="empty">
+        <section class="hero" aria-label="Lapse">
+          <div class="hero-stage">
+            <canvas id="hero-canvas" aria-hidden="true"></canvas>
+            <div class="hero-hud tl"><b>PROBE 01</b><span>MYZEL · KOLONIE</span></div>
+            <div class="hero-hud bl"><span id="hh-a">FLÄCHE 0,0 %</span><span id="hh-d">Ø 0,0 MM</span></div>
+            <div class="hero-hud br"><span>SCHALE 90 MM</span><span><i class="rec-dot"></i>LIVE</span></div>
+          </div>
+          <div class="hero-text">
+            <div class="kicker">ZEITRAFFER-LABOR</div>
+            <h1>Sichtbar machen,<br>was langsam geschieht.</h1>
+            <p>Aufnehmen, präzise ausrichten, Licht angleichen – und als Video exportieren.</p>
+          </div>
+        </section>
+        <div class="choices">
+          <button class="choice" id="choose-capture">
+            <span class="choice-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v2l1.4 1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+            <span class="choice-txt"><b>Zeitraffer aufnehmen</b><small>Kamera prüft Bild &amp; Licht, setzt Bezugspunkte und fotografiert automatisch im Intervall.</small></span>
+          </button>
+          <button class="choice" id="choose-photos">
+            <span class="choice-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="6" width="13" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7.5 6V4.5h13v13H17" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m5 17 3.5-4 2.5 3 1.5-1.5L15 17" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+            <span class="choice-txt"><b>Fotos laden</b><small>Vorhandene Fotos aus der Mediathek auswählen, ausrichten und zum Video machen.</small></span>
+          </button>
+        </div>
+        <div class="facts" aria-hidden="true">
+          <div><b>Subpixel</b><small>Ausrichtung</small></div>
+          <div><b>100 % lokal</b><small>nichts wird hochgeladen</small></div>
+          <div><b>MP4 · GIF</b><small>Export</small></div>
+        </div>
+        <div class="resumes">
+        <div class="card resume" id="resume" hidden>
+          <b>Letztes Projekt</b>
+          <p class="muted small" id="resume-info"></p>
+          <div class="btn-row">
+            <button class="btn primary" id="resume-btn">Fortsetzen</button>
+            <button class="btn ghost" id="resume-discard">Verwerfen</button>
+          </div>
+        </div>
+        <div class="card resume" id="last-video" hidden>
+          <b>Letztes Video</b>
+          <p class="muted small" id="lv-info"></p>
+          <div class="btn-row">
+            <button class="btn primary" id="lv-share">In Fotos sichern</button>
+            <button class="btn" id="lv-download">In Dateien sichern</button>
+          </div>
+        </div>
+        <div class="card resume" id="cap-resume" hidden>
+          <b>Zeitraffer-Aufnahme</b>
+          <p class="muted small" id="cap-resume-info"></p>
+          <div class="btn-row">
+            <button class="btn primary" id="cap-resume-use">Weiter verarbeiten</button>
+            <button class="btn" id="cap-resume-save">In Fotos sichern</button>
+            <button class="btn ghost" id="cap-resume-discard">Verwerfen</button>
+          </div>
+        </div>
+        </div>
+        <p class="version" id="version"></p>
+      </div>
+
+      <div id="photos-main" hidden>
+        <div class="toolbar">
+          <div class="count"><b id="photo-count">0</b> Fotos <span id="analyze-state" class="muted"></span></div>
+          <div class="toolbar-actions">
+            <label class="select-wrap" title="Sortierung">
+              <select id="sort">
+                <option value="time">Nach Aufnahmezeit</option>
+                <option value="name">Nach Dateiname</option>
+                <option value="added">Reihenfolge der Auswahl</option>
+              </select>
+            </label>
+            <label class="btn" for="file">+ Hinzufügen</label>
+            <button class="btn ghost" id="clear-all">Alle entfernen</button>
+          </div>
+        </div>
+        <div id="grid" class="grid"></div>
+
+      </div>
+    </section>
+
+    <!-- 2 · PUNKTE -->
+    <section id="view-points" class="view" hidden>
+      <div class="guide" id="guide-points"><b>Schritt 2 von 5 · Bezugspunkte setzen</b><p>Tippe im Foto auf 4–5 Stellen, die in allen Fotos vorhanden sind (z. B. die ersten Haferflocken). Dann unten „Alle Fotos ausrichten“.</p></div>
+      <div class="stage-wrap pts-wrap">
+        <div class="stage" id="pts-stage">
+          <canvas id="pts-canvas"></canvas>
+          <div class="anchor-layer" id="pts-layer"></div>
+          <canvas class="loupe" id="pts-loupe" width="240" height="240" hidden></canvas>
+        </div>
+      </div>
+      <p class="lead" id="pts-help"></p>
+      <ol class="anc-list" id="pts-list"></ol>
+      <div class="btn-row">
+        <button class="btn small ghost" id="pts-undo">Letzten Punkt löschen</button>
+        <button class="btn small ghost" id="pts-choose">Anderes Foto als Bezug</button>
+      </div>
+      <div class="strip" id="pts-strip" hidden></div>
+      <details class="card more">
+        <summary>Ohne Punkte automatisch ausrichten</summary>
+        <p class="help">Für Aufnahmen, bei denen sich nur wenig bewegt (z. B. Landschaft vom Stativ). Bei runden Motiven wie einer Petrischale besser Punkte setzen.</p>
+        <div class="field">
+          <span class="label">Aufnahmeart</span>
+          <div class="seg" data-set="model">
+            <button data-v="translation">Stativ</button>
+            <button data-v="similarity">Leicht bewegt</button>
+            <button data-v="homography">Freihand</button>
+          </div>
+          <p class="help" data-help="model"></p>
+        </div>
+        <button class="btn" id="pts-auto">Automatisch ausrichten</button>
+      </details>
+    </section>
+
+    <!-- 3 · VORSCHAU -->
+    <section id="view-edit" class="view" hidden>
+      <div class="guide" id="guide-edit"><b>Schritt 3 von 5 · Vorschau & Feinschliff</b><p>Video antippen = Vollbild. Darunter Tempo und Bild anpassen. Wenn alles passt: unten „Weiter: Zuschnitt“.</p></div>
+      <div class="guide" id="guide-crop" hidden><b>Schritt 4 von 5 · Video zuschneiden</b><p>Der helle Rahmen ist der Bildausschnitt des Videos. Format wählen, Rahmen verschieben oder an den Ecken ziehen. Fertig? Unten „Übernehmen &amp; weiter“.</p></div>
+      <div class="issues" id="issues" hidden>
+        <span id="issues-text"></span>
+        <button class="btn small warn" id="issues-btn">Jetzt prüfen</button>
+      </div>
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <canvas id="preview"></canvas>
+          <div class="stage-badge" id="stage-badge" hidden></div>
+          <div class="stage-hud tl" id="hud-frame"></div>
+          <div class="stage-hud br" id="hud-time"></div>
+          <div class="recalc" id="recalc" hidden><i></i>Wird neu berechnet …</div>
+          <div class="fs-hint" id="fs-hint">⤢ Antippen für Vollbild</div>
+          <div class="anchor-layer" id="anchor-layer" hidden></div>
+          <div class="crop-layer" id="crop-layer" hidden><span class="crop-tap">✎ Antippen zum Bearbeiten</span></div>
+          <canvas class="loupe" id="loupe" width="240" height="240" hidden></canvas>
+        </div>
+      </div>
+      <div class="transport">
+        <button class="icon-btn" id="play" aria-label="Abspielen">
+          <svg viewBox="0 0 24 24" class="i-play"><path d="M7 4.5v15l13-7.5z"/></svg>
+          <svg viewBox="0 0 24 24" class="i-pause"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+        </button>
+        <input type="range" id="scrub" min="0" max="1000" value="0" step="1" aria-label="Zeitposition">
+        <span class="time" id="time">0:00 / 0:00</span>
+      </div>
+
+      <div class="strip-head">
+        <span class="muted" id="strip-info"></span>
+        <div class="strip-actions">
+          <button class="btn small warn" id="fix-flagged" hidden></button>
+          <button class="btn small" id="anchor-btn" hidden>Punkte</button>
+        </div>
+      </div>
+      <div class="series" id="series-wrap"><canvas id="series" aria-label="Messreihe: Ausrichtung und Helligkeit je Foto"></canvas><div class="series-legend"><span class="lg-q">Ausrichtung</span><span class="lg-raw">Helligkeit roh</span><span class="lg-cor">korrigiert</span></div></div>
+      <div class="strip" id="strip" role="listbox" aria-label="Bilder"></div>
+      <div class="notice" id="notice" hidden>
+        <p id="notice-text"></p>
+        <div class="btn-row">
+          <button class="btn small" id="notice-view">Ansehen</button>
+          <button class="btn small" id="notice-exclude">Ausschließen</button>
+          <button class="btn small ghost" id="notice-keep">Behalten</button>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-anchors" hidden>
+        <div class="anc-head">
+          <div>
+            <b id="anc-title">Ankerpunkte</b>
+            <div class="muted small" id="anc-pos"></div>
+          </div>
+          <div class="btn-row anc-actions">
+            <button class="btn small ghost" id="anc-remove">Foto entfernen</button>
+            <button class="btn small" id="anc-done">Fertig</button>
+          </div>
+        </div>
+        <div class="anc-intro">
+          <div class="anc-mini" id="anc-mini" hidden></div>
+          <p class="help" id="anc-help"></p>
+        </div>
+        <div class="anc-nav">
+          <button class="btn small" id="anc-prev" aria-label="Vorheriges Foto">‹ Zurück</button>
+          <button class="btn small" id="anc-ref">Referenz</button>
+          <button class="btn small" id="anc-next" aria-label="Nächstes Foto">Weiter ›</button>
+        </div>
+        <ol class="anc-list" id="anc-list"></ol>
+        <div class="btn-grid">
+          <button class="btn primary" id="anc-track">In allen Fotos suchen</button>
+          <button class="btn" id="anc-next-bad">Nächstes unsicheres Foto</button>
+          <button class="btn ghost" id="anc-clear">Alle Punkte löschen</button>
+          <button class="btn ghost" id="anc-off">Ankerpunkte nicht verwenden</button>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-review" hidden>
+        <div class="rv-head">
+          <div>
+            <div class="rv-title" id="rv-title">Foto 1 von 1</div>
+            <div class="muted small" id="rv-name"></div>
+          </div>
+          <div class="rv-dots" id="rv-dots"></div>
+        </div>
+        <div class="rv-body">
+          <figure class="rv-ref">
+            <div class="anc-mini" id="rv-mini"></div>
+            <figcaption>Bezugsfoto</figcaption>
+          </figure>
+          <p class="rv-q" id="rv-q"></p>
+        </div>
+        <button class="btn wide rv-hold" id="rv-hold">◐ Bezugsfoto zeigen (gedrückt halten)</button>
+        <div class="btn-row">
+          <button class="btn" id="rv-retap">Nein – Flocken antippen</button>
+          <button class="btn ghost" id="rv-remove">Foto entfernen</button>
+        </div>
+        <button class="btn ghost small rv-quit" id="rv-quit">Prüfen abbrechen</button>
+      </div>
+
+      <div class="panel" id="panel-crop" hidden>
+        <div class="rv-head">
+          <div>
+            <div class="rv-title">Bildausschnitt wählen</div>
+            <div class="small" id="crop-state"></div>
+            <div class="muted small">Bild antippen – dann im Vollbild den Rahmen mit dem Finger verschieben oder an den Ecken ziehen.</div>
+          </div>
+        </div>
+        <div class="btn-row crop-actions">
+          <button class="btn" id="crop-play">▶ Video abspielen</button>
+          <button class="btn primary" id="crop-edit">✂ Ausschnitt bearbeiten</button>
+        </div>
+        <div class="field">
+          <span class="label">Format</span>
+          <div class="seg wrap" id="crop-aspect">
+            <button data-v="frei">Frei</button><button data-v="16:9">16:9</button><button data-v="9:16">9:16</button>
+            <button data-v="1:1">1:1</button><button data-v="4:3">4:3</button><button data-v="3:4">3:4</button>
+          </div>
+        </div>
+        <p class="help">Nur im hellen Bereich haben alle Fotos Bildinhalt – der Rahmen bleibt deshalb darin, damit keine Ränder entstehen.</p>
+        <div class="btn-row">
+          <button class="btn" id="crop-auto">Automatisch (größtmöglich)</button>
+          <button class="btn ghost" id="crop-cancel">Änderungen verwerfen</button>
+        </div>
+
+        <div class="scale-box" id="roi-box">
+          <div class="scale-head">
+            <span class="sec">Region of Interest</span>
+            <span class="scale-state off" id="roi-state">aus</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="roi-on"><span>Vergrößerte Region in einer Ecke zeigen</span></label>
+          <button class="btn" id="roi-edit">⌖ Region wählen</button>
+          <div class="roi-opts">
+            <div><span class="label">Ecke</span>
+              <div class="seg" id="inset-pos"><button data-v="tl" aria-label="oben links">↖</button><button data-v="tr" aria-label="oben rechts">↗</button><button data-v="bl" aria-label="unten links">↙</button><button data-v="br" aria-label="unten rechts">↘</button></div></div>
+            <div><span class="label">Größe</span>
+              <div class="seg" id="inset-size"><button data-v="0.28">S</button><button data-v="0.38">M</button><button data-v="0.5">L</button></div></div>
+          </div>
+          <div class="field roi-zoom">
+            <span class="label">Vergrößerung <output id="roi-zoom-out"></output></span>
+            <input type="range" id="roi-zoom" min="0" step="1" aria-label="Vergrößerung der Region of Interest">
+            <div class="chips" id="roi-zoom-chips"><button data-z="0">Auto</button><button data-z="2">2×</button><button data-z="3">3×</button><button data-z="4">4×</button><button data-z="6">6×</button></div>
+          </div>
+          <p class="help">Die Region of Interest wird im Video dezent weiß umrahmt und in der gewählten Ecke vergrößert gezeigt – live mit dem Zeitraffer. Der Rahmen im Video bleibt die gewählte Region; die Vergrößerung zoomt nur das Bild im Fenster (um die Mitte der Region). „Auto“ zeigt die ganze Region.</p>
+        </div>
+
+        <div class="scale-box" id="info-box">
+          <div class="scale-head">
+            <span class="sec">Datenanzeige</span>
+            <span class="scale-state off" id="info-state">aus</span>
+          </div>
+          <div class="info-row"><label class="switch"><input type="checkbox" data-info="probeOn"><span>Probe</span></label><input class="info-in" data-text="probeText" placeholder="01" maxlength="16" aria-label="Probennummer"></div>
+          <div class="info-row"><label class="switch"><input type="checkbox" data-info="nameOn"><span>Bezeichnung</span></label><input class="info-in" data-text="nameText" placeholder="z. B. Physarum" maxlength="40" aria-label="Bezeichnung"></div>
+          <div class="info-row"><label class="switch"><input type="checkbox" data-info="dateOn"><span>Datum</span></label><span class="info-note" id="info-date-note"></span></div>
+          <div class="info-row"><label class="switch"><input type="checkbox" data-info="areaOn"><span>Fläche &amp; Wachstum</span></label><span class="info-note" id="info-area-note"></span></div>
+          <div class="info-row"><label class="switch"><input type="checkbox" data-info="dishOn"><span>Schale</span></label><input class="info-in" data-text="dishText" placeholder="90 mm" maxlength="20" aria-label="Schale"></div>
+          <p class="help">Anordnung: oben links Probe und Bezeichnung, oben rechts die Zeit, unten rechts Schale, Fläche, Wachstum und Datum; unten links der Maßstab. Fläche = kräftig gelbe Bereiche (z. B. Schleimpilz); mit kalibriertem Maßstab in cm², sonst in % des Bildes. Wachstum bezieht sich auf das erste Foto.</p>
+        </div>
+
+        <div class="scale-box" id="stamp-box">
+          <div class="scale-head">
+            <span class="sec">Zeitanzeige</span>
+            <span class="scale-state off" id="stamp-state">aus</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="stamp-on"><span>Digitale Zeitanzeige im Video</span></label>
+          <div class="seg" id="stamp-mode"><button data-v="elapsed">Laufzeit (T+)</button><button data-v="clock">Uhrzeit &amp; Datum</button></div>
+          <p class="help" id="stamp-src"></p>
+          <div id="stamp-int">
+            <span class="label">Abstand zwischen den Aufnahmen</span>
+            <div class="scale-mm">
+              <label class="scale-input"><input type="number" id="stamp-int-val" inputmode="decimal" min="0.1" step="any" aria-label="Abstand"></label>
+              <div class="seg mini" id="stamp-int-u"><button data-v="1">s</button><button data-v="60">min</button><button data-v="3600">h</button></div>
+            </div>
+          </div>
+          <label class="switch" id="stamp-force-row"><input type="checkbox" id="stamp-force"><span>Festen Abstand statt Aufnahmezeiten verwenden</span></label>
+          <div><span class="label">Ecke</span>
+            <div class="seg" id="stamp-pos"><button data-v="tl" aria-label="oben links">↖</button><button data-v="tr" aria-label="oben rechts">↗</button><button data-v="bl" aria-label="unten links">↙</button><button data-v="br" aria-label="unten rechts">↘</button></div></div>
+        </div>
+
+        <div class="scale-box" id="scale-box">
+          <div class="scale-head">
+            <span class="sec">Maßstab</span>
+            <span class="scale-state" id="scale-state">nicht kalibriert</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="sb-on"><span>Maßstabsbalken</span></label>
+          <div class="seg" id="scale-pos"><button data-v="bl">Unten links</button><button data-v="br">Unten rechts</button></div>
+          <label class="switch"><input type="checkbox" id="ruler-on"><span>Lineal quer durch die Bildmitte</span></label>
+          <div class="btn-row">
+            <button class="btn" id="scale-cal">📏 Maßstab kalibrieren</button>
+            <button class="btn ghost" id="scale-clear" hidden>Entfernen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button role="tab" data-tab="video" class="active">Tempo</button>
+        <button role="tab" data-tab="look">Bild</button>
+        <button role="tab" data-tab="frame">Fotos</button>
+      </div>
+
+      <div class="panel" id="panel-video">
+        <div class="field">
+          <span class="label">Zeit pro Foto <output id="spf-out"></output></span>
+          <input type="range" id="spf" min="0" step="1" aria-label="Zeit pro Foto">
+          <div class="chips" id="spf-chips"><button data-s="0.05">0,05 s</button><button data-s="0.1">0,1 s</button><button data-s="0.2">0,2 s</button><button data-s="0.5">0,5 s</button><button data-s="1">1 s</button></div>
+          <p class="help">Länger pro Foto = langsameres Video – langsame Bewegungen werden besser sichtbar. Dauer: <b id="dur-readout">–</b></p>
+        </div>
+        <label class="switch"><input type="checkbox" data-set="crossfade"><span>Weiche Überblendung zwischen Fotos</span></label>
+        <details class="more">
+          <summary>Mehr</summary>
+        <div class="field">
+          <span class="label">Bildrate des Videos</span>
+          <div class="seg" data-set="fps" data-num>
+            <button data-v="24">24</button><button data-v="25">25</button><button data-v="30">30</button><button data-v="60">60</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">Bewegungsglättung <output data-out="smoothing"></output></span>
+          <input type="range" data-set="smoothing" min="1" max="7" step="2">
+          <p class="help">Mischt benachbarte Fotos – beruhigt Wolken, Wasser und Verkehr (Effekt wie längere Belichtung).</p>
+        </div>
+        <label class="switch"><input type="checkbox" data-set="pingpong"><span>Hin und zurück (Bumerang)</span></label>
+        <div class="field two">
+          <div>
+            <span class="label">Standbild Anfang <output data-out="holdStart"></output></span>
+            <input type="range" data-set="holdStart" min="0" max="3" step="0.25">
+          </div>
+          <div>
+            <span class="label">Standbild Ende <output data-out="holdEnd"></output></span>
+            <input type="range" data-set="holdEnd" min="0" max="3" step="0.25">
+          </div>
+        </div>
+        </details>
+      </div>
+
+      <div class="panel" id="panel-look" hidden>
+        <div class="field">
+          <span class="label">Format</span>
+          <div class="seg wrap" data-set="aspect">
+            <button data-v="16:9">16:9</button><button data-v="9:16">9:16</button><button data-v="4:3">4:3</button>
+            <button data-v="3:4">3:4</button><button data-v="1:1">1:1</button><button data-v="original">Original</button>
+          </div>
+          <p class="help" id="crop-help">Der Ausschnitt wird automatisch so groß wie möglich gewählt, ohne leere Ränder.</p>
+        </div>
+        <div class="field">
+          <span class="label">Helligkeit &amp; Farbe der Fotos angleichen</span>
+          <div class="seg" data-set="colorMode">
+            <button data-v="off">Aus</button>
+            <button data-v="deflicker">Flackern entfernen</button>
+            <button data-v="reference">Wie Bezugsfoto</button>
+          </div>
+          <p class="help" data-help="colorMode"></p>
+        </div>
+        <div class="field">
+          <span class="label">Belichtung <output data-out="exposure"></output></span>
+          <input type="range" data-set="exposure" min="-2" max="2" step="0.05">
+        </div>
+        <div class="field">
+          <span class="label">Kontrast <output data-out="contrast"></output></span>
+          <input type="range" data-set="contrast" min="0.5" max="1.6" step="0.02">
+        </div>
+        <div class="field">
+          <span class="label">Sättigung <output data-out="saturation"></output></span>
+          <input type="range" data-set="saturation" min="0" max="2" step="0.02">
+        </div>
+        <details class="more">
+          <summary>Mehr</summary>
+          <div class="field">
+            <span class="label">Zusätzlicher Zoom <output data-out="zoom"></output></span>
+            <input type="range" data-set="zoom" min="1" max="1.5" step="0.01">
+          </div>
+          <div class="field" data-if="colorMode!=off">
+            <span class="label">Stärke des Angleichens <output data-out="colorStrength"></output></span>
+            <input type="range" data-set="colorStrength" min="0" max="1" step="0.05">
+          </div>
+          <div class="field" data-if="colorMode==deflicker">
+            <span class="label">Glättungsfenster <output data-out="colorWindow"></output></span>
+            <input type="range" data-set="colorWindow" min="3" max="31" step="2">
+            <p class="help">Größer = ruhiger, kleiner = folgt schnellen Lichtwechseln.</p>
+          </div>
+          <label class="switch" data-if="colorMode!=off"><input type="checkbox" data-set="colorChannels"><span>Auch Farbe/Weißabgleich angleichen</span></label>
+        </details>
+      </div>
+
+      <div class="panel" id="panel-frame" hidden>
+        <div id="frame-none" class="muted center">Tippe im Filmstreifen auf ein Foto, um es zu prüfen. Auffällige Fotos sind mit ? oder ! markiert.</div>
+        <div id="frame-ui" hidden>
+          <div class="frame-head">
+            <img id="frame-thumb" alt="">
+            <div>
+              <div class="frame-title" id="frame-title"></div>
+              <div class="muted small" id="frame-meta"></div>
+              <div class="quality" id="frame-quality"></div>
+            </div>
+          </div>
+          <div class="btn-grid">
+            <button class="btn primary" id="f-anchors">Punkte in diesem Foto korrigieren</button>
+            <button class="btn" id="f-exclude">Foto ausschließen</button>
+            <button class="btn ghost" id="f-prev">‹ Vorheriges</button>
+            <button class="btn ghost" id="f-next">Nächstes ›</button>
+          </div>
+          <details class="more">
+          <summary>Feinkorrektur</summary>
+          <div class="field">
+            <span class="label">Vergleich mit Bezugsfoto</span>
+            <div class="seg" id="compare">
+              <button data-v="off" class="on">Aus</button>
+              <button data-v="overlay">Überlagern</button>
+              <button data-v="difference">Differenz</button>
+              <button data-v="blink">Blinken</button>
+            </div>
+            <p class="help">Bei guter Ausrichtung bleibt die Differenz dunkel und beim Blinken springt nichts.</p>
+          </div>
+          <h3 class="sub">Position</h3>
+          <div class="nudge" data-man="dx" data-step="0.05" data-min="-10" data-max="10" data-label="Horizontal" data-unit="%"></div>
+          <div class="nudge" data-man="dy" data-step="0.05" data-min="-10" data-max="10" data-label="Vertikal" data-unit="%"></div>
+          <div class="nudge" data-man="rot" data-step="0.05" data-min="-10" data-max="10" data-label="Drehung" data-unit="°"></div>
+          <div class="nudge" data-man="scale" data-step="0.002" data-min="0.8" data-max="1.25" data-label="Größe" data-unit="×"></div>
+          <h3 class="sub">Licht &amp; Farbe (nur dieses Foto)</h3>
+          <div class="nudge" data-man="ev" data-step="0.05" data-min="-3" data-max="3" data-label="Belichtung" data-unit="EV"></div>
+          <div class="nudge" data-man="temp" data-step="1" data-min="-100" data-max="100" data-label="Farbtemperatur" data-unit=""></div>
+          <div class="nudge" data-man="tint" data-step="1" data-min="-100" data-max="100" data-label="Tönung" data-unit=""></div>
+          <div class="btn-grid">
+            <button class="btn" id="f-ok">Als geprüft markieren</button>
+            <button class="btn" id="f-ref">Als Bezugsfoto setzen</button>
+            <button class="btn" id="f-refine">Automatisch neu ausrichten</button>
+            <button class="btn ghost" id="f-reset">Korrekturen zurücksetzen</button>
+          </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 · EXPORT -->
+    <section id="view-export" class="view" hidden>
+      <div class="guide" id="guide-export"><b>Schritt 5 von 5 · Video speichern</b><p>Format und Qualität wählen (die Voreinstellung passt fürs iPhone), dann unten „Video erstellen“ und im Fenster „In Fotos sichern“.</p></div>
+      <div class="card">
+        <h2>Format</h2>
+        <div id="formats" class="radio-list"></div>
+      </div>
+      <div class="card" id="res-card">
+        <h2>Auflösung</h2>
+        <div class="seg wrap" id="res"></div>
+        <p class="help" id="res-help"></p>
+      </div>
+      <div class="card" id="quality-card">
+        <h2>Qualität &amp; Dateigröße</h2>
+        <div class="seg" id="size-mode">
+          <button data-v="quality">Nach Qualität</button>
+          <button data-v="size">Nach Dateigröße</button>
+        </div>
+        <div class="field" id="q-quality">
+          <span class="label">Qualität <output id="q-out"></output></span>
+          <input type="range" id="q-slider" min="0" max="100" step="1" aria-label="Qualität">
+          <div class="ticks" aria-hidden="true"><span>Klein</span><span>Standard</span><span>Hoch</span><span>Maximal</span></div>
+        </div>
+        <div class="field" id="q-size">
+          <span class="label">Zielgröße <output id="s-out"></output></span>
+          <input type="range" id="s-slider" min="0" max="1000" step="1" aria-label="Zielgröße">
+          <div class="chips" id="s-chips"></div>
+        </div>
+        <div class="qinfo" id="q-info"></div>
+        <p class="help" id="q-help"></p>
+      </div>
+      <div class="card" id="crop-card">
+        <h2>Bildausschnitt</h2>
+        <div class="crop-card-row"><span class="small" id="crop-summary"></span><button class="btn small" id="crop-btn2">✂ Ändern</button></div>
+        <div class="exp-scale">
+          <label class="switch"><input type="checkbox" id="sb-on2"><span>Maßstabsbalken</span></label>
+          <label class="switch"><input type="checkbox" id="ruler-on2"><span>Lineal</span></label>
+          <p class="help" id="exp-scale-help"></p>
+        </div>
+      </div>
+      <div class="card summary" id="summary"></div>
+      <div class="card result" id="result" hidden>
+        <h2>Fertig</h2>
+        <div class="result-media" id="result-media"></div>
+        <p class="muted small" id="result-info"></p>
+        <div class="btn-row">
+          <button class="btn primary" id="share">In Fotos sichern / Teilen</button>
+          <button class="btn" id="download">Herunterladen</button>
+        </div>
+        <p class="help"><b>In die Fotos-App:</b> „In Fotos sichern / Teilen“ → im Teilen-Menü <b>„Video sichern“</b> wählen.<br>
+          <b>„Herunterladen“</b> legt die Datei in der <b>Dateien-App unter „Downloads“</b> ab (in Safari auch über das Download-Symbol in der Adressleiste). Öffnet sich nur eine Vorschau: dort Teilen-Symbol → „Video sichern“ oder „In Dateien sichern“.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- VOLLBILD-EDITOR: Zuschnitt und Maßstab -->
+  <div class="ed" id="ed" hidden role="dialog" aria-modal="true" aria-labelledby="ed-title">
+    <header class="ed-top">
+      <button class="btn small ghost" id="ed-cancel">Abbrechen</button>
+      <b id="ed-title">Bildausschnitt</b>
+      <button class="btn small primary" id="ed-done">Fertig</button>
+    </header>
+    <div class="ed-view" id="ed-view">
+      <div class="ed-box" id="ed-box">
+        <img id="ed-img" alt="">
+        <div class="ed-svg" id="ed-svg"></div>
+      </div>
+      <canvas class="ed-loupe" id="ed-loupe" width="264" height="264" hidden></canvas>
+    </div>
+    <div class="ed-tools">
+      <p class="ed-hint" id="ed-hint"></p>
+      <div id="ed-crop">
+        <div class="seg wrap" id="ed-aspect">
+          <button data-v="frei">Frei</button><button data-v="16:9">16:9</button><button data-v="9:16">9:16</button>
+          <button data-v="1:1">1:1</button><button data-v="4:3">4:3</button><button data-v="3:4">3:4</button>
+        </div>
+        <button class="btn wide" id="ed-auto">Automatisch (größtmöglich)</button>
+      </div>
+      <div id="ed-scale">
+        <div class="scale-mm">
+          <div class="chips" id="scale-chips"><button data-mm="35">35</button><button data-mm="60">60</button><button data-mm="90">90</button><button data-mm="100">100</button><button data-mm="150">150</button></div>
+          <label class="scale-input"><input type="number" id="scale-mm" inputmode="decimal" min="0.01" step="0.1" aria-label="Abstand in Millimeter"><span>mm</span></label>
+        </div>
+        <p class="ed-info" id="scale-info"></p>
+      </div>
+      <div id="ed-roi">
+        <p class="ed-info" id="roi-info"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ZEITRAFFER-AUFNAHME -->
+  <section id="view-capture" class="cap" hidden>
+    <header class="cap-top">
+      <button class="cap-x" id="cap-close" aria-label="Aufnahme schließen">✕</button>
+      <div class="cap-title">ZEITRAFFER<span>·</span><em>AUFNAHME</em></div>
+      <button class="diag-btn" id="cap-diag" aria-label="Diagnose öffnen"><i class="led"></i>DIAG</button>
+      <ol class="cap-phases" id="cap-phases">
+        <li data-p="live">01<i>Bild</i></li><li data-p="check">02<i>Prüfen</i></li><li data-p="timer">03<i>Timer</i></li><li data-p="run">04<i>Aufnahme</i></li>
+      </ol>
+    </header>
+
+    <div class="cap-view" id="cap-view">
+      <video id="cap-video" playsinline muted autoplay></video>
+      <img id="cap-still" alt="" hidden>
+      <canvas id="cap-overlay"></canvas>
+      <div class="cap-pts" id="cap-pts"></div>
+      <div class="hud tl" id="hud-tl"></div>
+      <div class="hud tr" id="hud-tr"></div>
+      <div class="hud bl" id="hud-bl"></div>
+      <div class="hud br" id="hud-br"></div>
+      <div class="cap-flash" id="cap-flash"></div>
+      <div class="cap-msg" id="cap-msg" hidden></div>
+    </div>
+
+    <div class="cap-hist"><canvas id="cap-hist"></canvas><div class="hist-scale"><span>0</span><span>25</span><span>50</span><span>75</span><span>100 %</span></div></div>
+
+    <div class="cap-panel">
+      <!-- 01 Bild einrichten -->
+      <div class="cap-step" data-p="live">
+        <div class="meters" id="cap-meters"></div>
+        <div class="cap-controls" id="cap-controls"></div>
+        <p class="cap-help">Kamera fest positionieren (Stativ/Halterung), Motiv mittig in den Hilfskreis. Dann ein Testfoto aufnehmen – Lapse prüft Bild und Licht.</p>
+      </div>
+      <!-- 02 Testfoto prüfen -->
+      <div class="cap-step" data-p="check" hidden>
+        <div class="cap-sec">Analyse Testfoto</div>
+        <ul class="issues-list" id="cap-issues"></ul>
+        <div class="cap-sec">Bezugspunkte <span id="cap-pts-n"></span></div>
+        <p class="cap-help">Orange Ringe = Punkte für die spätere Ausrichtung (z. B. Haferflocken). Antippen entfernt einen Ring, Tippen auf eine freie Stelle setzt einen neuen. 4–5 verteilte Punkte sind ideal.</p>
+        <button class="btn wide" id="cap-retest">↺ Neues Testfoto</button>
+      </div>
+      <!-- 03 Timer -->
+      <div class="cap-step" data-p="timer" hidden>
+        <div class="seg" id="cap-mode"><button data-v="interval">Alle … eine Aufnahme</button><button data-v="span">Anzahl in Zeitraum</button></div>
+        <div class="tm" id="tm-interval">
+          <div class="tm-row"><span>Alle</span><div class="stepper" data-k="every"></div><div class="seg mini" id="cap-every-u"><button data-v="s">s</button><button data-v="m">min</button><button data-v="h">h</button></div></div>
+          <div class="tm-row"><span>Aufnahmen</span><div class="stepper" data-k="count"></div><label class="tm-open"><input type="checkbox" id="cap-open"> bis ich stoppe</label></div>
+        </div>
+        <div class="tm" id="tm-span" hidden>
+          <div class="tm-row"><span>Aufnahmen</span><div class="stepper" data-k="scount"></div></div>
+          <div class="tm-row"><span>innerhalb</span><div class="stepper" data-k="span"></div><div class="seg mini" id="cap-span-u"><button data-v="m">min</button><button data-v="h">h</button></div></div>
+        </div>
+        <table class="cap-table" id="cap-plan"></table>
+        <div class="cap-sec">Vor dem Start</div>
+        <ul class="checklist" id="cap-check"></ul>
+      </div>
+      <!-- 04 Aufnahme läuft -->
+      <div class="cap-step" data-p="run" hidden>
+        <div class="run-main">
+          <div class="run-count"><b id="run-n">000</b><span id="run-of">/ 000</span></div>
+          <div class="run-next"><span>nächste Aufnahme</span><b id="run-next">--:--</b></div>
+        </div>
+        <div class="run-bar"><i id="run-bar"></i></div>
+        <table class="cap-table" id="run-table"></table>
+        <div class="run-warn" id="run-warn" hidden></div>
+        <div class="btn-row">
+          <button class="btn" id="run-pause">❚❚ Pause</button>
+          <button class="btn" id="run-dim">◐ Abdunkeln</button>
+          <button class="btn ghost" id="run-stop">■ Beenden</button>
+        </div>
+      </div>
+      <!-- 05 Fertig -->
+      <div class="cap-step" data-p="done" hidden>
+        <div class="cap-sec">Aufnahme abgeschlossen</div>
+        <table class="cap-table" id="done-table"></table>
+        <p class="cap-help" id="done-help">Die Fotos sind in Lapse gespeichert. Mit „In Fotos sichern“ landen sie in deiner Fotomediathek (iOS fragt dafür jedes Mal nach – bei vielen Fotos in mehreren Teilen).</p>
+        <button class="btn wide" id="cap-save">In Fotos sichern</button>
+        <button class="btn ghost wide" id="cap-discard">Aufnahme verwerfen</button>
+      </div>
+    </div>
+
+    <footer class="cap-action">
+      <button class="btn primary wide" id="cap-primary">Testfoto aufnehmen</button>
+    </footer>
+
+    <div class="cap-dim" id="cap-dim" hidden><div id="cap-dim-txt"></div><small>Antippen zum Aufwecken</small></div>
+  </section>
+
+  <footer class="actionbar">
+    <button class="btn primary wide" id="primary" disabled>Fotos auswählen</button>
+  </footer>
+
+  <div class="modal" id="progress" hidden role="dialog" aria-modal="true" aria-labelledby="progress-title">
+    <div class="modal-box proc-box">
+      <div class="proc-head"><i class="led busy"></i><h2 id="progress-title">Bitte warten</h2><b id="proc-pct">0 %</b></div>
+      <div class="proc-bar"><i id="progress-bar"></i></div>
+      <div class="proc-meta"><span id="proc-elapsed">T+00:00</span><span id="proc-rate"></span><span id="proc-eta">REST –</span></div>
+      <p id="progress-text" class="proc-now"></p>
+      <pre class="proc-log" id="proc-log" aria-live="off"></pre>
+      <div class="btn-row">
+        <button class="btn small" id="proc-diag">⌁ Diagnose</button>
+        <button class="btn small ghost" id="progress-cancel">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal" id="diag" hidden role="dialog" aria-modal="true" aria-labelledby="diag-title">
+    <div class="modal-box diag-box">
+      <div class="proc-head"><i class="led" id="diag-led"></i><h2 id="diag-title">Diagnose</h2><button class="cap-x" id="diag-close" aria-label="Schließen">✕</button></div>
+      <div class="diag-stats" id="diag-stats"></div>
+      <p class="help">Bei Problemen: „Bericht kopieren“ und hier im Chat einfügen. Enthalten sind Messwerte, Dateinamen, Einstellungen und das Rechenprotokoll – keine Bilder.</p>
+      <pre class="proc-log diag-log" id="diag-log"></pre>
+      <div class="btn-row">
+        <button class="btn primary" id="diag-copy">Kopieren</button>
+        <button class="btn" id="diag-share">Teilen</button>
+      </div>
+    </div>
+  </div>
+  <div class="modal" id="review" hidden role="dialog" aria-modal="true" aria-labelledby="review-title">
+    <div class="modal-box review-box">
+      <h2 id="review-title">Fast fertig</h2>
+      <p class="small" id="review-text"></p>
+      <ul class="review-list" id="review-list"></ul>
+      <button class="btn primary wide" id="review-start">Nacheinander ansehen</button>
+      <button class="btn wide" id="review-remove-all">Alle entfernen und weiter</button>
+      <button class="btn ghost wide" id="review-continue">Später</button>
+    </div>
+  </div>
+  <div class="modal" id="done" hidden role="dialog" aria-modal="true" aria-labelledby="done-title">
+    <div class="modal-box done-box">
+      <h2 id="done-title">Video fertig ✓</h2>
+      <div class="result-media" id="done-media"></div>
+      <p class="muted small" id="done-info"></p>
+      <button class="btn primary wide" id="done-share">In Fotos sichern</button>
+      <button class="btn wide" id="done-download">In Dateien sichern (Download)</button>
+      <p class="help">„In Fotos sichern“ öffnet das Teilen-Menü – dort <b>„Video sichern“</b> wählen. Das Video bleibt außerdem in Lapse gespeichert und lässt sich auf der Startseite erneut sichern.</p>
+      <button class="btn ghost wide" id="done-close">Schließen</button>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <input type="file" id="file" multiple accept="image/*" hidden>
+  <noscript>Lapse benötigt JavaScript.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
