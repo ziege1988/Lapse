@@ -49,7 +49,7 @@ Im Schritt **Zuschnitt** unter „Region of Interest“: „Region wählen“ ö
 
 ### Datenanzeige
 
-Im Schritt **Zuschnitt** unter „Datenanzeige“, jedes Element einzeln zuschaltbar und angeordnet wie auf der Startseite: oben links **Probe** (z. B. „PROBE 07“) und **Bezeichnung**, oben rechts die **Zeit**, unten links **Fläche & Wachstum**, unten rechts **Schale** und **Datum** (aus der Aufnahmezeit). Die Fläche wird je Foto gemessen: Anteil kräftig gelber Bildpunkte (z. B. Schleimpilz) – beige Haferflocken, weißes Papier und braunes Holz zählen nicht. Mit kalibriertem Maßstab in cm², sonst in % des Bildes; Wachstum relativ zum ersten Foto; bei Überblendung gleitend. Teilen sich Elemente eine Ecke, werden sie gestapelt (Daten am Rand, dann Zeit, Maßstab, Region of Interest).
+Im Schritt **Zuschnitt** unter „Datenanzeige“, jedes Element einzeln zuschaltbar und angeordnet wie auf der Startseite: oben links **Probe** (z. B. „PROBE 07“) und **Bezeichnung**, oben rechts die **Zeit**, unten rechts **Schale**, **Fläche & Wachstum** und **Datum** (aus der Aufnahmezeit); unten links bleibt dem Maßstab. Die Fläche wird je Foto gemessen: Anteil kräftig gelber Bildpunkte (z. B. Schleimpilz) – beige Haferflocken, weißes Papier und braunes Holz zählen nicht. Mit kalibriertem Maßstab in cm², sonst in % des Bildes; Wachstum relativ zum ersten Foto; bei Überblendung gleitend. Teilen sich Elemente eine Ecke, werden sie gestapelt (Daten am Rand, dann Zeit, Maßstab, Region of Interest).
 
 ### Zeitanzeige
 

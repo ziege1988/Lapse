@@ -164,8 +164,9 @@ function infoLines(project) {
   const st = project.settings, T = frameTimes(project), out = { tl: [], bl: [], br: [] };
   if (st.probeOn) out.tl.push('probe');
   if (st.nameOn && (st.nameText || '').trim()) out.tl.push('name');
-  if (st.areaOn) out.bl.push('area', 'growth');
+  // unten rechts: Schale, darunter Fläche & Wachstum, dann Datum (unten links bleibt dem Maßstab)
   if (st.dishOn) out.br.push('dish');
+  if (st.areaOn) out.br.push('area', 'growth');
   if (st.dateOn && T.source === 'meta') out.br.push('date');
   return out;
 }
