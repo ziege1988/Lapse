@@ -12,21 +12,24 @@ const bask = t => {
   return clamp(0.12 + 0.88 * (p < 0.55 ? 1 - 0.08 * (0.5 + 0.5 * Math.sin(p * TAU * 2)) : 0.5 + 0.5 * Math.cos((p - 0.55) / 0.45 * TAU)));
 };
 
-function wing(ctx, side, open) {
+const TILT = 0.55;     // Blickwinkel leicht von vorn oben: hochgeklappte Flügel erscheinen nach oben versetzt
+const MAX_ANGLE = 1.48; // ~85° hochgeklappt (geschlossen)
+
+/**
+ * Ein Flügel, gedreht um die Körperachse: angle 0 = flach offen, MAX_ANGLE = senkrecht nach oben.
+ * Projektion: x' = x·cos, y' = y − x·sin·TILT  (Flügelspitzen wandern beim Schließen nach oben).
+ */
+function wing(ctx, side, angle) {
+  const c = Math.cos(angle), sn = Math.sin(angle);
   ctx.save();
-  ctx.scale(side * Math.max(0.06, open), 1);
+  ctx.transform(side * Math.max(0.04, c), -TILT * sn, 0, 1, 0, 0);
   const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, 62);
   grad.addColorStop(0, '#5b3a22'); grad.addColorStop(0.3, '#d98c4a'); grad.addColorStop(0.7, '#f3c08a');
   grad.addColorStop(0.93, '#e9a964'); grad.addColorStop(1, '#3a2617');
+  const fore = () => { ctx.beginPath(); ctx.moveTo(0, -3); ctx.bezierCurveTo(10, -36, 48, -46, 60, -26); ctx.bezierCurveTo(64, -14, 44, -2, 0, 2); ctx.closePath(); };
+  const hind = () => { ctx.beginPath(); ctx.moveTo(0, 2); ctx.bezierCurveTo(30, 2, 50, 16, 44, 36); ctx.bezierCurveTo(38, 50, 14, 44, 0, 12); ctx.closePath(); };
   ctx.lineWidth = 2.2; ctx.strokeStyle = 'rgba(40,24,14,.95)';
-  // Vorderflügel
-  ctx.beginPath(); ctx.moveTo(0, -3);
-  ctx.bezierCurveTo(10, -36, 48, -46, 60, -26); ctx.bezierCurveTo(64, -14, 44, -2, 0, 2); ctx.closePath();
-  ctx.fillStyle = grad; ctx.fill(); ctx.stroke();
-  // Hinterflügel
-  ctx.beginPath(); ctx.moveTo(0, 2);
-  ctx.bezierCurveTo(30, 2, 50, 16, 44, 36); ctx.bezierCurveTo(38, 50, 14, 44, 0, 12); ctx.closePath();
-  ctx.fillStyle = grad; ctx.fill(); ctx.stroke();
+  for (const shape of [hind, fore]) { shape(); ctx.fillStyle = grad; ctx.fill(); ctx.stroke(); }
   // Adern
   ctx.strokeStyle = 'rgba(60,34,18,.55)'; ctx.lineWidth = 0.9; ctx.beginPath();
   for (const [x, y] of [[54, -30], [58, -18], [40, -38], [44, 30], [30, 38], [40, 14]]) { ctx.moveTo(2, 0); ctx.quadraticCurveTo(x * 0.5, y * 0.3, x, y); }
@@ -38,16 +41,12 @@ function wing(ctx, side, open) {
   ctx.beginPath(); ctx.arc(30, 27, 6, 0, TAU); ctx.fillStyle = '#2a1a10'; ctx.fill();
   ctx.beginPath(); ctx.arc(30, 27, 4, 0, TAU); ctx.fillStyle = '#7fd3e6'; ctx.fill();
   ctx.beginPath(); ctx.arc(29, 26, 1.4, 0, TAU); ctx.fillStyle = '#fff'; ctx.fill();
+  // Licht: hochgeklappte Flügel wirken dunkler
+  if (sn > 0.05) { ctx.fillStyle = `rgba(25,14,8,${(0.4 * sn).toFixed(3)})`; for (const shape of [hind, fore]) { shape(); ctx.fill(); } }
   ctx.restore();
 }
 
-function butterfly(ctx, x, y, s, open, rot) {
-  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s);
-  // weicher Schatten auf dem Blatt
-  ctx.save(); ctx.globalAlpha = 0.25; ctx.filter = 'blur(6px)'; ctx.translate(6, 10);
-  ctx.beginPath(); ctx.ellipse(0, 4, 54 * Math.max(0.15, open), 34, 0, 0, TAU); ctx.fillStyle = '#000'; ctx.fill(); ctx.restore();
-  wing(ctx, -1, open); wing(ctx, 1, open);
-  // Körper, Kopf, Fühler
+function body(ctx) {
   ctx.fillStyle = '#2a1c12';
   ctx.beginPath(); ctx.ellipse(0, 10, 3.6, 21, 0, 0, TAU); ctx.fill();
   ctx.beginPath(); ctx.arc(0, -13, 4.4, 0, TAU); ctx.fill();
@@ -55,6 +54,20 @@ function butterfly(ctx, x, y, s, open, rot) {
   for (const sd of [-1, 1]) { ctx.moveTo(sd * 1.5, -16); ctx.quadraticCurveTo(sd * 6, -30, sd * 12, -36); }
   ctx.stroke();
   for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(sd * 12, -36, 1.8, 0, TAU); ctx.fill(); }
+}
+
+/** open 1 = Flügel flach ausgebreitet, 0 = über dem Körper zusammengeklappt. */
+function butterfly(ctx, x, y, s, open, rot) {
+  const angle = (1 - open) * MAX_ANGLE;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s);
+  // Schatten auf dem Blatt: wird schmaler, wenn die Flügel hochgehen
+  ctx.save(); ctx.globalAlpha = 0.25; ctx.filter = 'blur(6px)'; ctx.translate(6, 12);
+  ctx.beginPath(); ctx.ellipse(0, 4, Math.max(8, 54 * Math.cos(angle)), 34, 0, 0, TAU); ctx.fillStyle = '#000'; ctx.fill(); ctx.restore();
+  // Offen liegt der Körper sichtbar oben auf; hochgeklappt verdecken die Flügel den Körper
+  const covered = angle > 0.75;
+  if (covered) body(ctx);
+  wing(ctx, -1, angle); wing(ctx, 1, angle);
+  if (!covered) body(ctx);
   ctx.restore();
 }
 
@@ -131,7 +144,7 @@ export class Hero {
     if (this.hud) {
       const min = Math.floor(t * 3) % 1440;
       this.hud.t.textContent = `T+ ${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')} h`;
-      this.hud.f.textContent = `FLÜGEL ${Math.round(o * 170)}°`;
+      this.hud.f.textContent = `FLÜGEL ${Math.round(180 - 2 * (1 - o) * MAX_ANGLE * 180 / Math.PI)}°`;
       this.hud.a.textContent = `ÖFFNUNG ${Math.round(o * 100)} %`;
       this.hud.d.textContent = `ZYKLUS ${String(CYCLE).replace('.', ',')} S`;
     }
