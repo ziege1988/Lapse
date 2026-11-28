@@ -1,67 +1,111 @@
-// Startbild: lebendige Petrischale. Ein vereinfachtes Schleimpilz-Modell (Physarum, Agenten auf
-// einem Spurenfeld) wächst zwischen Haferflocken; dazu Messwerte wie in der Aufnahme.
-// Läuft nur, solange es sichtbar ist; bei „Bewegung reduzieren“ ein ruhendes Bild.
+// Startbild: Schmetterling auf einem Blatt, der langsam die Flügel öffnet und schließt (wie beim Sonnen).
+// Vektorgrafik, live gezeichnet; dazu Messwerte am Rand. Läuft nur, solange es sichtbar ist;
+// bei „Bewegung reduzieren“ ein ruhendes Bild.
 
-const N = 200;                  // Rastergröße der Simulation
-const R = N * 0.46;             // Radius der Schale im Raster
-const AGENTS = 5200;
-const SA = 0.42, SO = 8, RA = 0.38, STEP = 1, DEPOSIT = 1.4, DECAY = 0.86;
-const OATS = [[0.30, 0.34, 0.6], [0.70, 0.30, -0.4], [0.74, 0.66, 0.9], [0.30, 0.70, 0.2], [0.52, 0.52, -0.9]];
+const TAU = Math.PI * 2;
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const CYCLE = 4.2; // Sekunden pro Flügelzyklus
+
+/** Flügelöffnung 0…1: lange offen (leichtes Zittern), dann ruhig schließen und wieder öffnen. */
+const bask = t => {
+  const p = (t % CYCLE) / CYCLE;
+  return clamp(0.12 + 0.88 * (p < 0.55 ? 1 - 0.08 * (0.5 + 0.5 * Math.sin(p * TAU * 2)) : 0.5 + 0.5 * Math.cos((p - 0.55) / 0.45 * TAU)));
+};
+
+function wing(ctx, side, open) {
+  ctx.save();
+  ctx.scale(side * Math.max(0.06, open), 1);
+  const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, 62);
+  grad.addColorStop(0, '#5b3a22'); grad.addColorStop(0.3, '#d98c4a'); grad.addColorStop(0.7, '#f3c08a');
+  grad.addColorStop(0.93, '#e9a964'); grad.addColorStop(1, '#3a2617');
+  ctx.lineWidth = 2.2; ctx.strokeStyle = 'rgba(40,24,14,.95)';
+  // Vorderflügel
+  ctx.beginPath(); ctx.moveTo(0, -3);
+  ctx.bezierCurveTo(10, -36, 48, -46, 60, -26); ctx.bezierCurveTo(64, -14, 44, -2, 0, 2); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill(); ctx.stroke();
+  // Hinterflügel
+  ctx.beginPath(); ctx.moveTo(0, 2);
+  ctx.bezierCurveTo(30, 2, 50, 16, 44, 36); ctx.bezierCurveTo(38, 50, 14, 44, 0, 12); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill(); ctx.stroke();
+  // Adern
+  ctx.strokeStyle = 'rgba(60,34,18,.55)'; ctx.lineWidth = 0.9; ctx.beginPath();
+  for (const [x, y] of [[54, -30], [58, -18], [40, -38], [44, 30], [30, 38], [40, 14]]) { ctx.moveTo(2, 0); ctx.quadraticCurveTo(x * 0.5, y * 0.3, x, y); }
+  ctx.stroke();
+  // helle Flecken an der Flügelspitze
+  ctx.fillStyle = 'rgba(255,250,240,.9)';
+  for (const [x, y, r] of [[50, -30, 2.4], [55, -23, 2], [45, -34, 1.6]]) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); }
+  // Augenfleck
+  ctx.beginPath(); ctx.arc(30, 27, 6, 0, TAU); ctx.fillStyle = '#2a1a10'; ctx.fill();
+  ctx.beginPath(); ctx.arc(30, 27, 4, 0, TAU); ctx.fillStyle = '#7fd3e6'; ctx.fill();
+  ctx.beginPath(); ctx.arc(29, 26, 1.4, 0, TAU); ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.restore();
+}
+
+function butterfly(ctx, x, y, s, open, rot) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s);
+  // weicher Schatten auf dem Blatt
+  ctx.save(); ctx.globalAlpha = 0.25; ctx.filter = 'blur(6px)'; ctx.translate(6, 10);
+  ctx.beginPath(); ctx.ellipse(0, 4, 54 * Math.max(0.15, open), 34, 0, 0, TAU); ctx.fillStyle = '#000'; ctx.fill(); ctx.restore();
+  wing(ctx, -1, open); wing(ctx, 1, open);
+  // Körper, Kopf, Fühler
+  ctx.fillStyle = '#2a1c12';
+  ctx.beginPath(); ctx.ellipse(0, 10, 3.6, 21, 0, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, -13, 4.4, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#2a1c12'; ctx.lineWidth = 1.2; ctx.beginPath();
+  for (const sd of [-1, 1]) { ctx.moveTo(sd * 1.5, -16); ctx.quadraticCurveTo(sd * 6, -30, sd * 12, -36); }
+  ctx.stroke();
+  for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(sd * 12, -36, 1.8, 0, TAU); ctx.fill(); }
+  ctx.restore();
+}
+
+function leaf(ctx, x, y, len, wid, ang) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  const g = ctx.createLinearGradient(0, -wid, 0, wid);
+  g.addColorStop(0, '#9cc0a4'); g.addColorStop(1, '#4f6f5a');
+  ctx.beginPath(); ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(len * 0.45, -wid, len, 0); ctx.quadraticCurveTo(len * 0.45, wid, 0, 0);
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = 'rgba(20,35,26,.7)'; ctx.lineWidth = 1.1; ctx.stroke();
+  // Mittelrippe und Seitenadern
+  ctx.strokeStyle = 'rgba(220,240,225,.45)'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len * 0.95, 0);
+  for (let i = 1; i < 6; i++) {
+    const px = len * i / 6.5, r = 0.5 * (1 - i / 7);
+    ctx.moveTo(px, 0); ctx.lineTo(px + len * 0.11, -wid * r); ctx.moveTo(px, 0); ctx.lineTo(px + len * 0.11, wid * r);
+  }
+  ctx.stroke();
+  // Stiel
+  ctx.strokeStyle = '#5d7f68'; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(-len * 0.08, wid * 0.2, -len * 0.16, wid * 0.55); ctx.stroke();
+  ctx.restore();
+}
 
 export class Hero {
   constructor(canvas, hud) {
     this.c = canvas; this.hud = hud;
     this.ctx = canvas.getContext('2d');
-    this.img = document.createElement('canvas'); this.img.width = N; this.img.height = N;
-    this.ictx = this.img.getContext('2d');
-    this.data = this.ictx.createImageData(N, N);
-    this.trail = new Float32Array(N * N); this.tmp = new Float32Array(N * N);
-    this.mask = new Uint8Array(N * N);
-    let inside = 0;
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-      if ((x - N / 2) ** 2 + (y - N / 2) ** 2 < R * R) { this.mask[y * N + x] = 1; inside++; }
-    }
-    this.inside = inside;
-    this.ax = new Float32Array(AGENTS); this.ay = new Float32Array(AGENTS); this.ah = new Float32Array(AGENTS);
     this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.running = false;
-    this.seed();
+    this.t0 = performance.now();
     this.resize();
     new ResizeObserver(() => this.resize()).observe(canvas);
-  }
-
-  seed() {
-    this.trail.fill(0);
-    this.t = 0; this.frame = 0; this.cover0 = null;
-    // Start: kleiner Fleck an einer Haferflocke (wie im echten Versuch)
-    const [ox, oy] = OATS[4];
-    for (let i = 0; i < AGENTS; i++) {
-      const a = Math.random() * Math.PI * 2, r = Math.random() * N * 0.05;
-      this.ax[i] = ox * N + Math.cos(a) * r; this.ay[i] = oy * N + Math.sin(a) * r;
-      this.ah[i] = Math.random() * Math.PI * 2;
-    }
   }
 
   resize() {
     const dpr = Math.min(2, devicePixelRatio || 1), w = this.c.clientWidth, h = this.c.clientHeight;
     if (!w || !h) return;
     this.c.width = Math.round(w * dpr); this.c.height = Math.round(h * dpr);
-    this.draw();
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.draw(this.reduced ? 1.2 : (performance.now() - this.t0) / 1000);
   }
 
   start() {
+    if (this.reduced) { this.draw(1.2); return; } // ruhendes Bild: Flügel offen
     if (this.running) return;
-    if (this.reduced) { if (!this.t) for (let i = 0; i < 520; i++) this.step(); this.draw(); return; }
     this.running = true;
     let last = 0;
     const loop = now => {
       if (!this.running) return;
-      if (now - last > 30) { // ~30 Bilder/s
-        last = now;
-        this.step(); this.step();
-        if (this.t > 1900) this.seed(); // neuer Versuch
-        this.draw();
-      }
+      if (now - last > 30) { last = now; this.draw((now - this.t0) / 1000); } // ~30 Bilder/s
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
@@ -69,120 +113,27 @@ export class Hero {
 
   stop() { this.running = false; cancelAnimationFrame(this.raf); }
 
-  sense(x, y) {
-    const xi = x | 0, yi = y | 0;
-    return xi < 0 || yi < 0 || xi >= N || yi >= N || !this.mask[yi * N + xi] ? -1 : this.trail[yi * N + xi];
-  }
-
-  step() {
-    const T = this.trail, m = this.mask;
-    // Nahrung: Haferflocken locken ständig an
-    for (const [ox, oy] of OATS) {
-      const cx = ox * N | 0, cy = oy * N | 0;
-      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) T[(cy + dy) * N + cx + dx] += 0.9;
-    }
-    // Agenten: fühlen, drehen, laufen, Spur legen
-    const grow = Math.min(1, 0.25 + this.t / 500); // anfangs wenige aktiv -> sichtbares Wachstum
-    const active = AGENTS * grow | 0;
-    for (let i = 0; i < active; i++) {
-      let x = this.ax[i], y = this.ay[i], h = this.ah[i];
-      const f = this.sense(x + Math.cos(h) * SO, y + Math.sin(h) * SO);
-      const l = this.sense(x + Math.cos(h - SA) * SO, y + Math.sin(h - SA) * SO);
-      const r = this.sense(x + Math.cos(h + SA) * SO, y + Math.sin(h + SA) * SO);
-      if (f >= l && f >= r) { /* geradeaus */ }
-      else if (f < l && f < r) h += (Math.random() < 0.5 ? -1 : 1) * RA;
-      else if (l > r) h -= RA; else h += RA;
-      h += (Math.random() - 0.5) * 0.12;
-      const nx = x + Math.cos(h) * STEP, ny = y + Math.sin(h) * STEP;
-      const ni = (ny | 0) * N + (nx | 0);
-      if (nx < 0 || ny < 0 || nx >= N || ny >= N || !m[ni]) { h += Math.PI * (0.5 + Math.random()); }
-      else { x = nx; y = ny; T[ni] += DEPOSIT; }
-      this.ax[i] = x; this.ay[i] = y; this.ah[i] = h;
-    }
-    // Spur verteilen und abklingen lassen (3×3-Mittel)
-    const o = this.tmp;
-    for (let y = 1; y < N - 1; y++) {
-      const row = y * N;
-      for (let x = 1; x < N - 1; x++) {
-        const i = row + x;
-        if (!m[i]) { o[i] = 0; continue; }
-        o[i] = (T[i] * 6 + T[i - 1] + T[i + 1] + T[i - N] + T[i + N]) / 10 * DECAY;
-      }
-    }
-    this.trail = o; this.tmp = T;
-    this.t++;
-  }
-
-  draw() {
-    const W = this.c.width, H = this.c.height;
-    if (!W) return;
-    const ctx = this.ctx, T = this.trail, d = this.data.data;
-    // Spurenfeld einfärben: dunkles Papier -> Bernstein -> helles Gelb
-    let cover = 0;
-    for (let i = 0, j = 0; i < N * N; i++, j += 4) {
-      if (!this.mask[i]) { d[j + 3] = 0; continue; }
-      const v = Math.min(1, Math.sqrt(T[i] / 9));
-      if (v > 0.35) cover++;
-      const e = v * v * (3 - 2 * v);
-      d[j] = 26 + e * 218; d[j + 1] = 27 + e * 165 + e * e * 45; d[j + 2] = 30 + e * 95 + e * e * e * 95; d[j + 3] = 255;
-    }
-    this.ictx.putImageData(this.data, 0, 0);
+  draw(t) {
+    const ctx = this.ctx, W = this.c.clientWidth, H = this.c.clientHeight;
+    if (!W || !H) return;
     ctx.clearRect(0, 0, W, H);
-    const S = Math.min(W, H) * 0.92, x0 = (W - S) / 2, y0 = (H - S) / 2, k = S / N, cx = W / 2, cy = H / 2;
-    const dpr = W / this.c.clientWidth;
-    // Glas der Schale
-    ctx.save();
-    ctx.beginPath(); ctx.arc(cx, cy, R * k + 6 * dpr, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,.025)'; ctx.fill();
-    ctx.lineWidth = 1 * dpr; ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx, cy, R * k + 2 * dpr, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.stroke();
-    // Spurenbild mit Leuchten
-    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.filter = `blur(${4 * dpr}px)`; ctx.globalAlpha = 0.45;
-    ctx.drawImage(this.img, x0, y0, S, S);
-    ctx.filter = 'none'; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(this.img, x0, y0, S, S);
-    // Haferflocken mit Bezugsringen
-    for (const [ox, oy, rot] of OATS) {
-      const px = x0 + ox * S, py = y0 + oy * S;
-      ctx.save(); ctx.translate(px, py); ctx.rotate(rot);
-      ctx.beginPath(); ctx.ellipse(0, 0, 7 * dpr * S / 300, 4.6 * dpr * S / 300, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(236,222,196,.92)'; ctx.fill();
-      ctx.restore();
-      ctx.beginPath(); ctx.arc(px, py, 13 * dpr * S / 300, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(243,192,138,.85)'; ctx.lineWidth = 1.3 * dpr; ctx.stroke();
-    }
-    // Messring (dreht langsam) und Fadenkreuz
-    const a = (this.t / 160) % (Math.PI * 2);
-    ctx.setLineDash([3 * dpr, 5 * dpr]); ctx.strokeStyle = 'rgba(127,211,230,.55)'; ctx.lineWidth = 1 * dpr;
-    ctx.beginPath(); ctx.arc(cx, cy, R * k * 0.84, a, a + Math.PI * 1.55); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.strokeStyle = 'rgba(255,255,255,.35)';
-    const L = R * k + 16 * dpr;
-    ctx.beginPath();
-    ctx.moveTo(cx - L, cy); ctx.lineTo(cx - L + 10 * dpr, cy); ctx.moveTo(cx + L, cy); ctx.lineTo(cx + L - 10 * dpr, cy);
-    ctx.moveTo(cx, cy - L); ctx.lineTo(cx, cy - L + 10 * dpr); ctx.moveTo(cx, cy + L); ctx.lineTo(cx, cy + L - 10 * dpr);
+    const S = Math.min(W, H * 1.05), cx = W / 2, cy = H / 2;
+    // Skala links (wie ein Messbild)
+    ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 1; ctx.beginPath();
+    const y0 = H * 0.2, y1 = H * 0.8;
+    for (let i = 0; i <= 40; i++) { const y = Math.round(y0 + i * (y1 - y0) / 40) + 0.5, l = i % 10 ? (i % 5 ? 3 : 6) : 10; ctx.moveTo(24, y); ctx.lineTo(24 + l, y); }
     ctx.stroke();
-    // Skala am Rand
-    ctx.strokeStyle = 'rgba(255,255,255,.18)';
-    ctx.beginPath();
-    for (let i = 0; i < 72; i++) {
-      const w = i * Math.PI / 36, r1 = R * k + 9 * dpr, r2 = r1 + (i % 6 ? 3 : 7) * dpr;
-      ctx.moveTo(cx + Math.cos(w) * r1, cy + Math.sin(w) * r1); ctx.lineTo(cx + Math.cos(w) * r2, cy + Math.sin(w) * r2);
-    }
-    ctx.stroke();
-    ctx.restore();
+    // Blatt und Falter
+    leaf(ctx, cx - S * 0.34, cy + S * 0.25, S * 0.8, S * 0.18, -0.3);
+    const o = bask(t), bob = Math.sin(t * 1.3) * 1.5;
+    butterfly(ctx, cx + S * 0.05, cy + S * 0.0 + bob, S / 180, o, -0.12);
     // Messwerte
-    const cov = cover / this.inside * 100;
-    if (this.cover0 == null && this.t > 5) this.cover0 = cov;
-    this.frame = Math.floor(this.t / 8);
-    const min = this.t * 3, hh = Math.floor(min / 60), mm = min % 60;
     if (this.hud) {
-      this.hud.t.textContent = `T+ ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} h`;
-      this.hud.f.textContent = `FRAME ${String(this.frame).padStart(4, '0')}`;
-      this.hud.a.textContent = `FLÄCHE ${cov.toFixed(1).replace('.', ',')} %`;
-      this.hud.d.textContent = `Δ ${this.cover0 != null ? '+' + (cov - this.cover0).toFixed(1).replace('.', ',') : '0,0'} %`;
+      const min = Math.floor(t * 3) % 1440;
+      this.hud.t.textContent = `T+ ${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')} h`;
+      this.hud.f.textContent = `FLÜGEL ${Math.round(o * 170)}°`;
+      this.hud.a.textContent = `ÖFFNUNG ${Math.round(o * 100)} %`;
+      this.hud.d.textContent = `ZYKLUS ${String(CYCLE).replace('.', ',')} S`;
     }
   }
 }

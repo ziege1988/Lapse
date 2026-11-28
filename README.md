@@ -141,7 +141,7 @@ js/app.js             Steuerung der Oberfläche
 js/capture.js         Zeitraffer-Aufnahme (Kamera, Messwerte, Testfoto, Timer)
 js/overlay.js         Einblendungen im Video (Maßstab)
 js/diag.js            Rechenprotokoll und Diagnosebericht
-js/hero.js            Startbild (Schleimpilz-Modell)
+js/hero.js            Startbild (Schmetterling auf einem Blatt)
 css/lab.css, hero.css Labor-Optik und Startseite
 css/capture.css       Gestaltung der Aufnahme-Ansicht
 js/project.js         Projektmodell: Transformationen, Zuschnitt, Farbangleich, Zeitplan, Qualität
